@@ -41,7 +41,8 @@ Implemented: Tauri idle-pet shell, the hooks→log→mood→sprite perception pi
 the mood state machine + template speech, XP/level/evolution + persistence, the
 optional LLM voice with settings ([docs/llm.md](docs/llm.md)), and direct-
 manipulation interactions (drag with position memory, click-to-pet, right-click
-menu → settings / today's stats / quit). Remaining: the cross-platform release
-pipeline. See the PRD and `tasks/` for the source of truth.
+menu → settings / today's stats / quit), and a cross-platform release pipeline
+(GitHub Actions + `tauri-action`; see [docs/release.md](docs/release.md)). All
+seven planned slices are implemented. See the PRD and `tasks/` for the source of truth.
 
 Cross-platform builds (macOS / Windows / Linux) are produced via GitHub Actions (`tauri-action`) on release.

@@ -2,7 +2,7 @@
 id: 7
 slug: github-actions-release
 prd: docs/prds/2026-06-25-claude-code-desktop-pet.md
-state: ready-for-agent
+state: done
 category: enhancement
 blocked_by: [1]
 ---
