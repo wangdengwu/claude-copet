@@ -45,3 +45,10 @@ implementation rather than hard-coding from memory.
 - A hosted/proxy LLM backend — the call goes direct from the app with the user's key (out of PRD scope).
 - Deep telemetry context (token/cost) — not part of the summary.
 - The right-click menu entry that opens settings (slice 6 wires the entry; the settings surface itself is built here).
+
+## Implementation note (as built)
+Two providers ship behind one `LlmClient` seam: **`claude-cli` is the default** —
+it spawns the local Claude Code CLI (`claude -p`), reusing the user's login with no
+API key — and `anthropic` (direct Messages API, `claude-haiku-4-5`) is the alternate.
+This refines the brief's "default Claude Haiku" assumption; see the PRD Amendments
+section and [docs/llm.md](../../docs/llm.md). Privacy contract unchanged.

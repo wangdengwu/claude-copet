@@ -10,7 +10,7 @@ A lightweight, always-on-top desktop pixel-pet (built with Tauri) that:
 
 - **Reacts in real time** to Claude Code activity. Hooks append events to a log; the pet shifts mood accordingly — busy while tools run, panicked on errors, happy on completion, dozing when idle.
 - **Grows over time** without pressure. Activity earns XP; the pet levels up and evolves through pixel-sprite stages. There is no hunger meter that kills it — neglect simply means it naps. No guilt.
-- **Talks** via speech bubbles. Common moments use handwritten template lines (instant, offline, free). Special moments (a hard-won success, a level-up, a reunion after absence) can use an LLM-generated line (Claude Haiku) for personality. Only a de-sensitized summary (event type + brief gist) is ever sent to the LLM — never raw code, commands, or paths. The LLM is a pluggable, toggleable provider; the pet works fully without it.
+- **Talks** via speech bubbles. Common moments use handwritten template lines (instant, offline, free). Special moments (a hard-won success, a level-up, a reunion after absence) can use an LLM-generated line for personality — by default via the local Claude Code CLI (`claude -p`, reusing the user's existing login, no API key), or via a direct Anthropic API key (Claude Haiku). Only a de-sensitized summary (event type + brief gist) is ever sent to the LLM — never raw code, commands, or paths. The LLM is a pluggable, toggleable provider; the pet works fully without it. (See [Amendments](#amendments).)
 
 The pet is a floating, draggable, transparent window. Click it to pet it; right-click for settings, today's stats, and quit.
 
@@ -63,7 +63,7 @@ Claude Code hooks ──append JSONL──> events.jsonl
 
 **Unit 4 — Growth aggregator.** Aggregates consumed events into per-day stats (sessions, tool_calls, turns, errors, active_min) and accumulates XP → level → evolution stage. No death/penalty for inactivity. Persisted to `state.json`. Contract: `(prev_pet, new_events) → updated_pet`; idempotent given the offset cursor.
 
-**Unit 5 — Speaker (pluggable).** Interface `Speaker.speak(context) → line`. `TemplateSpeaker` (default, always-on): picks a handwritten line per mood/event. `LlmSpeaker` (optional, default Claude Haiku): generates a contextual line at special moments only, behind a cooldown. Context is a de-sensitized summary (event type + pet state + short gist), never raw code/paths. Toggle, provider choice, and API key live in settings. Exact Claude model id / pricing to be confirmed via the `claude-api` skill at implementation time.
+**Unit 5 — Speaker (pluggable).** Interface `Speaker.speak(context) → line`. `TemplateSpeaker` (default, always-on): picks a handwritten line per mood/event. `LlmSpeaker` (optional, off by default): generates a contextual line at special moments only, behind a cooldown, via a pluggable `LlmClient`. Two providers ship: `claude-cli` (**the default** — spawns the local Claude Code CLI `claude -p`, reusing the user's login, no API key) and `anthropic` (direct Messages API with the user's key, model `claude-haiku-4-5`). Context is a de-sensitized summary (event type + pet state + short gist), never raw code/paths/session-id/tool-string. Toggle, provider choice, and API key live in settings (`~/.claude-copet/settings.json`). Model id/pricing confirmed via the `claude-api` skill (`claude-haiku-4-5`, $1/$5 per MTok). See [docs/llm.md](../llm.md).
 
 **Frontend.** Canvas + `requestAnimationFrame` loop plays the sprite sheet for the current mood; evolution stage swaps the sprite set. Speech bubble renders above the sprite and fades after a few seconds. A pure `mood → animation` mapping function isolates the testable logic from rendering. Tauri window: `decorations:false, transparent:true, always_on_top:true, skip_taskbar:true`; window position persisted. Interactions: drag to move, click to pet (→ happy), right-click menu (settings / today's stats / quit).
 
@@ -100,5 +100,15 @@ Verified by eye (no automated tests): transparent always-on-top window, sprite a
 - Deep telemetry (token/cost curves, OpenTelemetry/TMA1 integration) — later enhancement; growth uses the hook event log only.
 - Multiple evolution branches, accessory/cosmetic shop, multiple pets, social features.
 - Hunger-to-death mechanics or any inactivity penalty (explicitly rejected).
-- A hosted/proxy LLM backend — the LLM call goes direct from the app using the user's own key.
+- A hosted/proxy LLM backend run by us. The LLM call is always client-side: either through the user's local Claude Code CLI (default) or direct to Anthropic with the user's own key.
 - Polished cross-platform UX parity beyond what `tauri-action` produces out of the box.
+
+## Amendments
+
+- **2026-06-25 (slice 5) — LLM provider default.** Original design defaulted the
+  optional LLM voice to a direct Anthropic API call (Claude Haiku, user's key).
+  Changed the **default** provider to `claude-cli`, which reuses the user's local
+  Claude Code login via `claude -p` (no API key to configure). Rationale: the
+  pet's audience already runs Claude Code, so this works out of the box. The
+  Anthropic-API provider remains available as the alternative. Both sit behind one
+  `LlmClient` seam; the privacy contract (de-sensitized summary only) is unchanged.
