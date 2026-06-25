@@ -284,6 +284,24 @@ fn set_settings(s: settings::Settings) {
     }
 }
 
+/// Invoked by the frontend when the user clicks (not drags) the pet.
+/// Emits a Happy mood entry + a template speech line — same path as the watcher.
+#[tauri::command]
+fn pet_clicked(app: tauri::AppHandle) {
+    let seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0xDEAD_BEEF);
+    let mut speaker = speaker::TemplateSpeaker::new(seed);
+    announce(&app, &mut speaker, events::Mood::Happy);
+}
+
+/// Clean exit from the context menu.
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 // ─────────────────────────── entry point ─────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -294,12 +312,13 @@ pub fn run() {
         .unwrap_or_else(settings::Settings::default);
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
             let handle = app.handle().clone();
             std::thread::spawn(move || watch_event_log(handle, cfg));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_settings, set_settings])
+        .invoke_handler(tauri::generate_handler![get_settings, set_settings, pet_clicked, quit_app])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

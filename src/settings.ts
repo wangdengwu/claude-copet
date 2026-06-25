@@ -19,6 +19,12 @@ async function invokeOrNull<T>(cmd: string, args?: unknown): Promise<T | null> {
   }
 }
 
+// Exposed so external callers (e.g. the context menu) can open the panel.
+let _openSettingsFn: (() => void) | null = null;
+export function openSettings(): void {
+  _openSettingsFn?.();
+}
+
 /** Build and attach the settings panel to the given container element. */
 export function mountSettingsPanel(container: HTMLElement): void {
   const panel = document.createElement("div");
@@ -101,13 +107,18 @@ export function mountSettingsPanel(container: HTMLElement): void {
   ].join("");
   container.appendChild(toggle);
 
-  toggle.addEventListener("click", () => {
+  function openPanel(): void {
     if (panel.style.display === "none") {
       panel.style.display = "block";
       toggle.style.display = "none";
       loadSettings();
     }
-  });
+  }
+
+  // Wire the module-level export so the context menu can call openSettings().
+  _openSettingsFn = openPanel;
+
+  toggle.addEventListener("click", openPanel);
 
   // Close when clicking outside the panel.
   document.addEventListener("click", (e) => {

@@ -38,9 +38,10 @@ hook script, and the `settings.json` block to paste in.
 ## Status
 
 Implemented: Tauri idle-pet shell, the hooks→log→mood→sprite perception pipe,
-the mood state machine + template speech, XP/level/evolution + persistence, and
-the optional LLM voice with settings ([docs/llm.md](docs/llm.md)). Remaining:
-direct-manipulation interactions (drag / click-to-pet / right-click menu) and the
-cross-platform release pipeline. See the PRD and `tasks/` for the source of truth.
+the mood state machine + template speech, XP/level/evolution + persistence, the
+optional LLM voice with settings ([docs/llm.md](docs/llm.md)), and direct-
+manipulation interactions (drag with position memory, click-to-pet, right-click
+menu → settings / today's stats / quit). Remaining: the cross-platform release
+pipeline. See the PRD and `tasks/` for the source of truth.
 
 Cross-platform builds (macOS / Windows / Linux) are produced via GitHub Actions (`tauri-action`) on release.
