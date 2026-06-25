@@ -2,6 +2,9 @@
 export type Mood = "wake" | "listen" | "work" | "panic" | "happy" | "idle" | "sleep" | "tired";
 export type AnimationKey = string;
 
+// Evolution stages — matches the Rust `growth::Stage` enum (rename_all = "lowercase").
+export type Stage = "egg" | "juvenile" | "adult" | "elder";
+
 const moodToAnimation: Record<Mood, AnimationKey> = {
   idle: "idle",
   wake: "wake",
