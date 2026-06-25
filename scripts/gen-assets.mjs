@@ -62,6 +62,7 @@ function encodePNG(width, height, rgba) {
 }
 
 // ---- drawing -----------------------------------------------------------
+// Default (idle) palette; per-mood sheets override BODY/EDGE so the swap is visible.
 const BODY = [91, 209, 176, 255];
 const EDGE = [40, 120, 100, 255];
 const EYE = [28, 38, 38, 255];
@@ -76,7 +77,8 @@ function setPx(buf, w, h, x, y, col) {
 }
 
 // Draw one breathing pixel-blob centered in a cell whose top-left is (ox, oy).
-function drawBlob(buf, w, h, ox, oy, scale, breath) {
+// `body`/`edge` default to the idle palette so the icon generator stays unchanged.
+function drawBlob(buf, w, h, ox, oy, scale, breath, body = BODY, edge = EDGE) {
   const cx = ox + 16 * scale;
   const cy = oy + 22 * scale;
   const rx = 11 * scale;
@@ -88,7 +90,7 @@ function drawBlob(buf, w, h, ox, oy, scale, breath) {
       const dx = (x - cx) / rx;
       const dy = (y - cy) / ry;
       const d = dx * dx + dy * dy;
-      if (d <= 1) setPx(buf, w, h, x, y, d > 0.78 ? EDGE : BODY);
+      if (d <= 1) setPx(buf, w, h, x, y, d > 0.78 ? edge : body);
     }
   }
   // Eyes, riding just above the blob's vertical center.
@@ -102,19 +104,42 @@ function drawBlob(buf, w, h, ox, oy, scale, breath) {
   }
 }
 
-// ---- idle sprite sheet -------------------------------------------------
+// ---- per-mood sprite sheets --------------------------------------------
+// One 4-frame 32x32 horizontal strip per mood/animation key. Same breathing
+// animation throughout; moods differ by body color so the on-screen swap is
+// visibly distinct. Keys MUST match `animationForMood`'s outputs (src/animation.ts).
 const FW = 32;
 const FH = 32;
 const FRAMES = 4;
 const BREATH = [0, -1, 0, 1]; // gentle squash/stretch over the loop
 const sheetW = FW * FRAMES;
-const sheet = Buffer.alloc(sheetW * FH * 4); // zeroed => transparent
-for (let f = 0; f < FRAMES; f++) {
-  drawBlob(sheet, sheetW, FH, f * FW, 0, 1, BREATH[f]);
+
+// edge = body darkened, so each sheet keeps the idle look-and-feel.
+function darken([r, g, b]) {
+  return [Math.round(r * 0.45), Math.round(g * 0.45), Math.round(b * 0.45), 255];
 }
+
+const MOOD_BODY = {
+  idle: [91, 209, 176, 255], // teal (unchanged from slice 1)
+  wake: [240, 214, 90, 255], // bright yellow — just woke up
+  listen: [96, 165, 230, 255], // blue — attentive
+  work: [233, 150, 70, 255], // orange — busy
+  panic: [223, 86, 86, 255], // red — alarm
+  happy: [233, 130, 190, 255], // pink — celebrating
+  sleep: [150, 120, 200, 255], // dim purple — dozing
+  tired: [150, 150, 158, 255], // gray — low energy
+};
+
 fs.mkdirSync(path.join(ROOT, "src/sprites"), { recursive: true });
-fs.writeFileSync(path.join(ROOT, "src/sprites/idle.png"), encodePNG(sheetW, FH, sheet));
-console.log(`wrote src/sprites/idle.png (${sheetW}x${FH}, ${FRAMES} frames of ${FW}x${FH})`);
+for (const [key, body] of Object.entries(MOOD_BODY)) {
+  const edge = darken(body);
+  const sheet = Buffer.alloc(sheetW * FH * 4); // zeroed => transparent
+  for (let f = 0; f < FRAMES; f++) {
+    drawBlob(sheet, sheetW, FH, f * FW, 0, 1, BREATH[f], body, edge);
+  }
+  fs.writeFileSync(path.join(ROOT, `src/sprites/${key}.png`), encodePNG(sheetW, FH, sheet));
+  console.log(`wrote src/sprites/${key}.png (${sheetW}x${FH}, ${FRAMES} frames of ${FW}x${FH})`);
+}
 
 // ---- app icon source ---------------------------------------------------
 const IS = 1024;

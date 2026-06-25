@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { animationForMood } from "./animation";
 import type { Mood } from "./animation";
 import { SHEETS } from "./sprites";
@@ -16,8 +17,14 @@ function sizeCanvas(): void {
 sizeCanvas();
 window.addEventListener("resize", sizeCanvas);
 
-const mood: Mood = "idle";
-const key = animationForMood(mood);
-const sheet = SHEETS[key];
+// Start idle; the Rust core emits "mood" as events flow in from Claude Code.
+const controller = startRenderLoop(canvas, SHEETS.idle);
 
-startRenderLoop(canvas, sheet);
+// listen rejects when no Tauri runtime is present (e.g. plain `vite` in a browser);
+// swallow it so the pet still renders idle outside the app shell.
+listen<Mood>("mood", (event) => {
+  const key = animationForMood(event.payload);
+  controller.setSheet(SHEETS[key] ?? SHEETS.idle);
+}).catch(() => {
+  /* not running inside Tauri — stay idle */
+});

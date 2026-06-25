@@ -4,13 +4,13 @@ export type AnimationKey = string;
 
 const moodToAnimation: Record<Mood, AnimationKey> = {
   idle: "idle",
-  wake: "idle",
-  listen: "idle",
-  work: "idle",
-  panic: "idle",
-  happy: "idle",
-  sleep: "idle",
-  tired: "idle",
+  wake: "wake",
+  listen: "listen",
+  work: "work",
+  panic: "panic",
+  happy: "happy",
+  sleep: "sleep",
+  tired: "tired",
 };
 
 export function animationForMood(mood: Mood): AnimationKey {
