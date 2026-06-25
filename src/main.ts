@@ -4,6 +4,7 @@ import type { Mood, Stage } from "./animation";
 import { SHEETS } from "./sprites";
 import { startRenderLoop } from "./render";
 import { createBubble } from "./bubble";
+import { mountSettingsPanel } from "./settings";
 
 const canvas = document.getElementById("pet") as HTMLCanvasElement;
 const bubble = createBubble(document.getElementById("bubble") as HTMLElement);
@@ -18,6 +19,9 @@ function sizeCanvas(): void {
 
 sizeCanvas();
 window.addEventListener("resize", sizeCanvas);
+
+// Mount the settings panel (gear button → overlay).
+mountSettingsPanel(document.body);
 
 // Start idle; the Rust core emits "mood" as events flow in from Claude Code.
 const controller = startRenderLoop(canvas, SHEETS.idle);
