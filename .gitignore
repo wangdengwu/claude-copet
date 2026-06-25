@@ -1,0 +1,26 @@
+# Rust / Tauri
+/src-tauri/target/
+**/target/
+Cargo.lock.bak
+
+# Node / frontend
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+
+# Tauri build output
+/src-tauri/gen/
+
+# Env / secrets (LLM API keys etc.)
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log
