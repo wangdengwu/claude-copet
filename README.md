@@ -8,7 +8,7 @@ A lightweight always-on-top desktop pet (built with **Tauri**) that:
 
 - **Reacts in real time** to your Claude Code activity via hooks — busy when tools run, panics on errors, celebrates on completion, dozes when idle.
 - **Grows over time** — earns XP from your coding activity, levels up, and evolves through pixel-sprite stages. No hunger, no death; neglect just means it naps.
-- **Talks** — speech bubbles driven by handwritten template lines, with optional LLM-generated lines (Claude Haiku) for special moments. Context sent to the LLM is a de-sensitized summary (event type + brief gist, never raw code).
+- **Talks** — speech bubbles driven by handwritten template lines, with optional LLM-generated lines for special moments. The default LLM provider reuses your local Claude Code login (`claude -p`, no API key); a direct Anthropic API key is the alternative. Context sent to the LLM is a de-sensitized summary (event type + level/stage + counts, never raw code, commands, or paths). See [docs/llm.md](docs/llm.md).
 
 ## Architecture (high level)
 
@@ -18,7 +18,7 @@ Claude Code ──(hooks append JSONL)──> ~/.claude-copet/events.jsonl
                                               ▼
                     Tauri (Rust): event → mood state machine + decay
                                   XP / level / evolution  ──> state.json
-                                  Speaker: Template | LLM (pluggable)
+                                  Speaker: Template | LLM (claude-cli · API key)
                                               │ (emit)
                                               ▼
                     Web frontend (Canvas): pixel sprite animation
@@ -27,7 +27,7 @@ Claude Code ──(hooks append JSONL)──> ~/.claude-copet/events.jsonl
 
 - **Event delivery:** file event log (`events.jsonl`) — hooks are fire-and-forget, never block Claude Code; doubles as the data source for long-term growth.
 - **Storage:** plain JSON (`state.json`).
-- **LLM:** pluggable `Speaker` interface; defaults to Claude Haiku, fully toggleable.
+- **LLM:** pluggable `Speaker` interface, fully toggleable (off by default). Default provider reuses the local Claude Code CLI (no API key); Anthropic API key is the alternative. See [docs/llm.md](docs/llm.md).
 
 ## Wiring it into Claude Code
 
@@ -37,6 +37,10 @@ hook script, and the `settings.json` block to paste in.
 
 ## Status
 
-Design agreed; implementation not yet started. See the PRD for the source of truth.
+Implemented: Tauri idle-pet shell, the hooks→log→mood→sprite perception pipe,
+the mood state machine + template speech, XP/level/evolution + persistence, and
+the optional LLM voice with settings ([docs/llm.md](docs/llm.md)). Remaining:
+direct-manipulation interactions (drag / click-to-pet / right-click menu) and the
+cross-platform release pipeline. See the PRD and `tasks/` for the source of truth.
 
 Cross-platform builds (macOS / Windows / Linux) are produced via GitHub Actions (`tauri-action`) on release.
