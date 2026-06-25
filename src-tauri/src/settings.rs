@@ -20,7 +20,7 @@ impl Settings {
     pub fn default() -> Self {
         Settings {
             llm_enabled: false,
-            provider: "anthropic".to_string(),
+            provider: "claude-cli".to_string(),
             model: "claude-haiku-4-5".to_string(),
             api_key: String::new(),
         }

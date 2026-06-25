@@ -185,6 +185,6 @@ fn default_settings_shape() {
     let d = Settings::default();
     assert!(!d.llm_enabled, "LLM must be off by default");
     assert_eq!(d.model, "claude-haiku-4-5", "default model must be claude-haiku-4-5");
-    assert_eq!(d.provider, "anthropic", "default provider must be anthropic");
+    assert_eq!(d.provider, "claude-cli", "default provider must be claude-cli");
     assert!(d.api_key.is_empty(), "default api_key must be empty");
 }

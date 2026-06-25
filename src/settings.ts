@@ -36,8 +36,11 @@ export function mountSettingsPanel(container: HTMLElement): void {
     </label>
     <label style="display:block;margin-bottom:4px">
       Provider
-      <input id="s-provider" type="text" value="anthropic"
+      <select id="s-provider"
         style="width:100%;box-sizing:border-box;margin-top:2px;background:#222;color:#eee;border:1px solid #555;padding:2px">
+        <option value="claude-cli">claude-cli (uses local Claude Code login — no key)</option>
+        <option value="anthropic">anthropic (API key)</option>
+      </select>
     </label>
     <label style="display:block;margin-bottom:4px">
       API Key
@@ -54,7 +57,7 @@ export function mountSettingsPanel(container: HTMLElement): void {
   container.appendChild(panel);
 
   const chkEnabled = panel.querySelector<HTMLInputElement>("#s-llm-enabled")!;
-  const inpProvider = panel.querySelector<HTMLInputElement>("#s-provider")!;
+  const inpProvider = panel.querySelector<HTMLSelectElement>("#s-provider")!;
   const inpApiKey = panel.querySelector<HTMLInputElement>("#s-api-key")!;
   const btnSave = panel.querySelector<HTMLButtonElement>("#s-save")!;
   const statusEl = panel.querySelector<HTMLElement>("#s-status")!;
@@ -75,7 +78,7 @@ export function mountSettingsPanel(container: HTMLElement): void {
 
     const s: Settings = {
       llm_enabled: chkEnabled.checked,
-      provider: inpProvider.value.trim() || "anthropic",
+      provider: inpProvider.value || "claude-cli",
       model,
       // Only update the key if the user typed something; preserve existing otherwise.
       api_key: inpApiKey.value.trim()

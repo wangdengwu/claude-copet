@@ -227,6 +227,39 @@ pub fn is_special_moment(
 
 // ─────────────────────────── real HTTP client ────────────────────────────────
 
+/// Reuses the locally-installed Claude Code CLI (`claude -p`, print mode) so the
+/// pet can speak without the user configuring an API key — it rides their existing
+/// Claude Code login. The model still runs in Anthropic's cloud (the CLI makes the
+/// network call); from our side it's just a local subprocess. Best-effort: any
+/// failure (CLI missing, non-zero exit, empty output) returns `Err(())` so the
+/// caller falls back to a template line. Never panics. Not exercised by tests (no
+/// subprocess in CI).
+pub struct ClaudeCliClient;
+
+impl LlmClient for ClaudeCliClient {
+    fn complete(&self, system: &str, prompt: &str) -> Result<String, ()> {
+        // Merge system + prompt into one print-mode message — avoids depending on
+        // a specific system-prompt CLI flag, which is less stable than `-p`.
+        let combined = format!("{system}\n\n{prompt}");
+        let output = std::process::Command::new("claude")
+            .arg("-p")
+            .arg(&combined)
+            .arg("--output-format")
+            .arg("text")
+            .output()
+            .map_err(|_| ())?;
+        if !output.status.success() {
+            return Err(());
+        }
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if text.is_empty() {
+            Err(())
+        } else {
+            Ok(text)
+        }
+    }
+}
+
 /// Production `LlmClient` that calls the Anthropic Messages API (blocking).
 /// Not exercised by tests (no network); kept small and non-panicking.
 pub struct AnthropicClient {

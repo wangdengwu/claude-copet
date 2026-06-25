@@ -164,7 +164,13 @@ fn watch_event_log(app: tauri::AppHandle, cfg: settings::Settings) {
             // ── LLM special-moment path ──
             if cfg.llm_enabled {
                 let env_key = std::env::var("ANTHROPIC_API_KEY").ok();
-                if let Some(api_key) = cfg.resolve_api_key(env_key.as_deref()) {
+                let provider = cfg.provider.clone();
+                let api_key = cfg.resolve_api_key(env_key.as_deref());
+                // The anthropic provider needs an API key; claude-cli reuses the
+                // local Claude Code login, so it's ready without one.
+                let provider_ready =
+                    (provider == "anthropic" && api_key.is_some()) || provider != "anthropic";
+                if provider_ready {
                     let model = cfg.model.clone();
 
                     // Check each event for a special moment; fire at most one LLM call.
@@ -200,20 +206,31 @@ fn watch_event_log(app: tauri::AppHandle, cfg: settings::Settings) {
                                 let app_clone = app.clone();
                                 let ev_clone = event.clone();
                                 let st_clone = pet_state.clone();
+                                let provider_clone = provider.clone();
                                 let key_clone = api_key.clone();
                                 let model_clone = model.clone();
                                 let mood_snap = candidate_mood;
 
                                 std::thread::spawn(move || {
-                                    let client = speaker::AnthropicClient {
-                                        api_key: key_clone,
-                                        model: model_clone,
-                                    };
                                     let summary = speaker::build_summary(&ev_clone, &st_clone, mood_snap);
                                     let system = "You are a small pixel desktop pet companion for \
                                         a developer. Respond with exactly one short, friendly, \
                                         encouraging line (max 12 words). No hashtags, no special characters.";
-                                    if let Ok(line) = client.complete(system, &summary) {
+                                    // claude-cli reuses the local Claude Code login (no key);
+                                    // anthropic uses the user's API key directly.
+                                    let result = if provider_clone == "anthropic" {
+                                        match key_clone {
+                                            Some(k) => speaker::AnthropicClient {
+                                                api_key: k,
+                                                model: model_clone,
+                                            }
+                                            .complete(system, &summary),
+                                            None => Err(()),
+                                        }
+                                    } else {
+                                        speaker::ClaudeCliClient.complete(system, &summary)
+                                    };
+                                    if let Ok(line) = result {
                                         if !line.is_empty() {
                                             let _ = app_clone.emit("speech", line);
                                         }
