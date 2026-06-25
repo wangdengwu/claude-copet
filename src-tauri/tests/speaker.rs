@@ -16,7 +16,7 @@ const ALL_MOODS: [Mood; 8] = [
 fn every_mood_returns_some_nonempty() {
     let mut speaker = TemplateSpeaker::new(42);
     for mood in ALL_MOODS {
-        let ctx = SpeakContext { mood };
+        let ctx = SpeakContext { mood, ..Default::default() };
         let result = speaker.speak(&ctx);
         assert!(result.is_some(), "speak() returned None for mood {:?}", mood);
         let line = result.unwrap();
@@ -47,12 +47,12 @@ fn deterministic_under_fixed_seed() {
 
     let outputs_a: Vec<String> = moods_sequence
         .iter()
-        .filter_map(|&mood| speaker_a.speak(&SpeakContext { mood }))
+        .filter_map(|&mood| speaker_a.speak(&SpeakContext { mood, ..Default::default() }))
         .collect();
 
     let outputs_b: Vec<String> = moods_sequence
         .iter()
-        .filter_map(|&mood| speaker_b.speak(&SpeakContext { mood }))
+        .filter_map(|&mood| speaker_b.speak(&SpeakContext { mood, ..Default::default() }))
         .collect();
 
     assert_eq!(

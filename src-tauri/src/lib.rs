@@ -4,13 +4,15 @@
 pub mod events;
 pub mod growth;
 pub mod mood;
+pub mod settings;
 pub mod speaker;
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use speaker::Speaker;
+use speaker::{LlmClient as _, Speaker};
 use tauri::Emitter;
 
 /// The event-log location, shared by the Claude Code hooks and this watcher.
@@ -25,6 +27,12 @@ fn event_log_path() -> Option<PathBuf> {
 fn state_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
     Some(PathBuf::from(home).join(".claude-copet").join("state.json"))
+}
+
+/// The persisted settings location: `$HOME/.claude-copet/settings.json`.
+fn settings_path() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    Some(PathBuf::from(home).join(".claude-copet").join("settings.json"))
 }
 
 /// "YYYY-MM-DD" today. Pure arithmetic on the Unix epoch — no chrono crate needed.
@@ -77,7 +85,13 @@ fn save_state(state: &growth::PetState) {
 /// Emit the new mood to the frontend and, on mood entry, a spoken template line.
 fn announce(app: &tauri::AppHandle, speaker: &mut speaker::TemplateSpeaker, mood: events::Mood) {
     let _ = app.emit("mood", mood);
-    if let Some(line) = speaker.speak(&speaker::SpeakContext { mood }) {
+    if let Some(line) = speaker.speak(&speaker::SpeakContext {
+        mood,
+        event: None,
+        state: None,
+        prev_mood: None,
+        stage_changed: false,
+    }) {
         let _ = app.emit("speech", line);
     }
 }
@@ -86,7 +100,7 @@ fn announce(app: &tauri::AppHandle, speaker: &mut speaker::TemplateSpeaker, mood
 /// New events preempt the mood, reset its decay timer, and feed the growth
 /// system (XP/level/stage). Quiet polls are pure time ticks that let the mood
 /// decay. Growth state persists to `state.json` so progress survives restarts.
-fn watch_event_log(app: tauri::AppHandle) {
+fn watch_event_log(app: tauri::AppHandle, cfg: settings::Settings) {
     let Some(log_path) = event_log_path() else {
         return;
     };
@@ -109,8 +123,13 @@ fn watch_event_log(app: tauri::AppHandle) {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0xC0FF_EE00);
-    let mut speaker = speaker::TemplateSpeaker::new(seed);
+    let mut template_speaker = speaker::TemplateSpeaker::new(seed);
     let mut last = Instant::now();
+
+    // Optional LLM cooldown state — shared with the spawned threads.
+    // Cooldown: 5 minutes between LLM calls.
+    let llm_last_call: Arc<Mutex<Option<Instant>>> = Arc::new(Mutex::new(None));
+    const LLM_COOLDOWN_SECS: u64 = 300;
 
     loop {
         std::thread::sleep(Duration::from_millis(250));
@@ -136,10 +155,75 @@ fn watch_event_log(app: tauri::AppHandle) {
             let today = today_string();
             let stage_before = pet_state.pet.stage;
             growth::aggregate(&mut pet_state, &new_events, delta_s, &today);
-            if pet_state.pet.stage != stage_before {
+            let stage_changed = pet_state.pet.stage != stage_before;
+            if stage_changed {
                 let _ = app.emit("stage", pet_state.pet.stage);
             }
             save_state(&pet_state);
+
+            // ── LLM special-moment path ──
+            if cfg.llm_enabled {
+                let env_key = std::env::var("ANTHROPIC_API_KEY").ok();
+                if let Some(api_key) = cfg.resolve_api_key(env_key.as_deref()) {
+                    let model = cfg.model.clone();
+
+                    // Check each event for a special moment; fire at most one LLM call.
+                    let mut fired = false;
+                    let prev_mood_for_batch = mood_state.mood;
+
+                    for event in &new_events {
+                        if fired {
+                            break;
+                        }
+                        // Compute candidate mood for this event.
+                        let candidate_mood = events::mood_for_event(event).unwrap_or(mood_state.mood);
+                        if speaker::is_special_moment(
+                            event,
+                            &pet_state,
+                            candidate_mood,
+                            Some(prev_mood_for_batch),
+                            stage_changed,
+                        ) {
+                            // Check cooldown before spawning.
+                            let cooldown_ok = {
+                                let guard = llm_last_call.lock().unwrap();
+                                guard.map_or(true, |t: Instant| {
+                                    t.elapsed() >= Duration::from_secs(LLM_COOLDOWN_SECS)
+                                })
+                            };
+                            if cooldown_ok {
+                                {
+                                    let mut guard = llm_last_call.lock().unwrap();
+                                    *guard = Some(Instant::now());
+                                }
+                                fired = true;
+                                let app_clone = app.clone();
+                                let ev_clone = event.clone();
+                                let st_clone = pet_state.clone();
+                                let key_clone = api_key.clone();
+                                let model_clone = model.clone();
+                                let mood_snap = candidate_mood;
+
+                                std::thread::spawn(move || {
+                                    let client = speaker::AnthropicClient {
+                                        api_key: key_clone,
+                                        model: model_clone,
+                                    };
+                                    let summary = speaker::build_summary(&ev_clone, &st_clone, mood_snap);
+                                    let system = "You are a small pixel desktop pet companion for \
+                                        a developer. Respond with exactly one short, friendly, \
+                                        encouraging line (max 12 words). No hashtags, no special characters.";
+                                    if let Ok(line) = client.complete(system, &summary) {
+                                        if !line.is_empty() {
+                                            let _ = app_clone.emit("speech", line);
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // ── Mood: drive the state machine ──
@@ -148,7 +232,7 @@ fn watch_event_log(app: tauri::AppHandle) {
             let (next, signals) = mood::step(&mood_state, None, delta);
             mood_state = next;
             if signals.mood_changed {
-                announce(&app, &mut speaker, mood_state.mood);
+                announce(&app, &mut template_speaker, mood_state.mood);
             }
         } else {
             // Events in this batch are treated as simultaneous: the elapsed delta
@@ -160,21 +244,45 @@ fn watch_event_log(app: tauri::AppHandle) {
                 let (next, signals) = mood::step(&mood_state, Some(event), d);
                 mood_state = next;
                 if signals.mood_changed {
-                    announce(&app, &mut speaker, mood_state.mood);
+                    announce(&app, &mut template_speaker, mood_state.mood);
                 }
             }
         }
     }
 }
 
+// ─────────────────────────── Tauri commands ──────────────────────────────────
+
+#[tauri::command]
+fn get_settings() -> settings::Settings {
+    settings_path()
+        .and_then(|p| settings::Settings::load_from(&p).ok())
+        .unwrap_or_else(settings::Settings::default)
+}
+
+#[tauri::command]
+fn set_settings(s: settings::Settings) {
+    if let Some(path) = settings_path() {
+        let _ = s.save_to(&path);
+    }
+}
+
+// ─────────────────────────── entry point ─────────────────────────────────────
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Load settings once at startup; inject into the watcher.
+    let cfg = settings_path()
+        .and_then(|p| settings::Settings::load_from(&p).ok())
+        .unwrap_or_else(settings::Settings::default);
+
     tauri::Builder::default()
         .setup(|app| {
             let handle = app.handle().clone();
-            std::thread::spawn(move || watch_event_log(handle));
+            std::thread::spawn(move || watch_event_log(handle, cfg));
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![get_settings, set_settings])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
