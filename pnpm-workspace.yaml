@@ -1,0 +1,4 @@
+# esbuild ships a native binary via a postinstall script; allow it to run.
+# (pnpm blocks dependency build scripts by default.)
+allowBuilds:
+  esbuild: true

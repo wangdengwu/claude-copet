@@ -24,3 +24,11 @@ dist-ssr/
 .vscode/*
 !.vscode/extensions.json
 *.log
+
+# Claude Code — personal/runtime (settings.json IS committed as project convention)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/*.lock
+
+# weee:dev local orchestration scaffolding (ledger/briefs/reports stay machine-local)
+.weee/

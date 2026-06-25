@@ -29,6 +29,12 @@ Claude Code ──(hooks append JSONL)──> ~/.claude-copet/events.jsonl
 - **Storage:** plain JSON (`state.json`).
 - **LLM:** pluggable `Speaker` interface; defaults to Claude Haiku, fully toggleable.
 
+## Wiring it into Claude Code
+
+The pet reacts to an append-only event log written by Claude Code hooks. See
+[docs/hooks.md](docs/hooks.md) for the log path, line format, the fire-and-forget
+hook script, and the `settings.json` block to paste in.
+
 ## Status
 
 Design agreed; implementation not yet started. See the PRD for the source of truth.

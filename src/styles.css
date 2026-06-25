@@ -1,0 +1,70 @@
+/* The window itself is transparent (Tauri); keep every layer transparent so
+   only the sprite is ever visible — no chrome, no background rectangle. */
+:root {
+  background: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  /* The whole surface is the pet; the OS window handles hit-testing. */
+  user-select: none;
+}
+
+#pet {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+  /* Pixel art: never smooth on upscale. */
+  image-rendering: pixelated;
+}
+
+/* Pixel speech bubble, centered above the sprite. Fades via opacity; the data-show
+   attribute is toggled from JS. pointer-events:none so it never steals clicks. */
+.bubble {
+  position: fixed;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 86vw;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  background: #f7f7ef;
+  color: #28262a;
+  border: 2px solid #28262a;
+  border-radius: 3px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.3;
+  text-align: center;
+  white-space: pre-wrap;
+  word-break: break-word;
+  pointer-events: none;
+  z-index: 10; /* always above the sprite canvas */
+  opacity: 0;
+  transition: opacity 600ms ease;
+  /* hard pixel shadow */
+  box-shadow: 2px 2px 0 #28262a;
+}
+
+.bubble[data-show="true"] {
+  opacity: 1;
+}
+
+/* little tail pointing down toward the sprite */
+.bubble::after {
+  content: "";
+  position: absolute;
+  bottom: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 7px solid #28262a;
+}

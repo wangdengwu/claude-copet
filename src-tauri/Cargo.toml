@@ -1,0 +1,22 @@
+[package]
+name = "claude-copet"
+version = "0.1.0"
+description = "A desktop pixel-pet companion for Claude Code"
+authors = ["dengwu.wang <me@dengwu.wang>"]
+edition = "2021"
+rust-version = "1.77.2"
+
+# The library holds the app logic so it can also target mobile later; the
+# binary is a thin entry point.
+[lib]
+name = "claude_copet_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# macos-private-api is required for a genuinely transparent window on macOS.
+tauri = { version = "2", features = ["macos-private-api"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
