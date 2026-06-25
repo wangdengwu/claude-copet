@@ -2,7 +2,7 @@
 id: 3
 slug: mood-state-machine-template-speech
 prd: docs/prds/2026-06-25-claude-code-desktop-pet.md
-state: ready-for-agent
+state: done
 category: enhancement
 blocked_by: [2]
 ---
