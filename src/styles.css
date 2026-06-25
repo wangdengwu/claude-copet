@@ -1,0 +1,26 @@
+/* The window itself is transparent (Tauri); keep every layer transparent so
+   only the sprite is ever visible — no chrome, no background rectangle. */
+:root {
+  background: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  /* The whole surface is the pet; the OS window handles hit-testing. */
+  user-select: none;
+}
+
+#pet {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+  /* Pixel art: never smooth on upscale. */
+  image-rendering: pixelated;
+}
