@@ -1,0 +1,45 @@
+// Pure mapping from the Rust "hud" snapshot to the card's view model. The only
+// frontend seam: decides the context-bar fill width, the colour band, the model
+// badge, and the "—" degradation when a field is unavailable. No DOM here.
+
+export interface HudState {
+  sessionLabel: string;
+  sessionId: string;
+  model: string | null;
+  contextPercent: number | null;
+  // Slice 4 adds: activity, needsHuman.
+}
+
+export type ColorBand = "green" | "amber" | "red" | "none";
+
+export interface HudView {
+  label: string;
+  model: string;
+  contextText: string;
+  barWidthPct: number;
+  colorBand: ColorBand;
+}
+
+// Colour thresholds: green headroom, amber caution, red near-full.
+const AMBER_AT = 70;
+const RED_AT = 90;
+
+function bandFor(pct: number): ColorBand {
+  if (pct >= RED_AT) return "red";
+  if (pct >= AMBER_AT) return "amber";
+  return "green";
+}
+
+export function formatHud(state: HudState): HudView {
+  const raw = state.contextPercent;
+  const hasPct = raw !== null && raw !== undefined && !Number.isNaN(raw);
+  const pct = hasPct ? Math.max(0, Math.min(100, raw as number)) : 0;
+
+  return {
+    label: state.sessionLabel || "—",
+    model: state.model || "—",
+    contextText: hasPct ? `${Math.round(pct)}%` : "—",
+    barWidthPct: pct,
+    colorBand: hasPct ? bandFor(pct) : "none",
+  };
+}

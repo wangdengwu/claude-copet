@@ -27,7 +27,30 @@ struct HudSnapshot {
     session_label: String,
     #[serde(rename = "sessionId")]
     session_id: String,
+    /// Friendly model name (e.g. "Opus 4.8"), or `null` when no transcript usage
+    /// is available.
+    #[serde(rename = "model")]
+    model: Option<String>,
+    /// Context used as a percentage, or `null` when no transcript is readable.
+    #[serde(rename = "contextPercent")]
+    context_percent: Option<f64>,
 }
+
+/// Read at most `max_bytes` from the END of `path` (a bounded tail — never loads
+/// a huge transcript fully). Returns `None` if the file can't be read.
+fn read_tail(path: &str, max_bytes: u64) -> Option<Vec<u8>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = fs::File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    let start = len.saturating_sub(max_bytes);
+    f.seek(SeekFrom::Start(start)).ok()?;
+    let mut buf = Vec::new();
+    f.take(max_bytes).read_to_end(&mut buf).ok()?;
+    Some(buf)
+}
+
+/// How much of a transcript tail we read to find the latest assistant usage.
+const TRANSCRIPT_TAIL_BYTES: u64 = 512 * 1024;
 
 /// The event-log location, shared by the Claude Code hooks and this watcher.
 /// `$HOME/.claude-copet/events.jsonl` (`%USERPROFILE%` on Windows).
@@ -106,6 +129,7 @@ fn watch_event_log(app: tauri::AppHandle) {
     // renders a placeholder until the first event arrives.
     let mut active_session: Option<String> = None;
     let mut active_cwd: Option<String> = None;
+    let mut active_transcript: Option<String> = None;
     let mut last_hud = HudSnapshot::default();
     let _ = app.emit("hud", &last_hud);
 
@@ -134,15 +158,32 @@ fn watch_event_log(app: tauri::AppHandle) {
                     if !s.is_empty() {
                         active_session = Some(s.clone());
                         active_cwd = ev.cwd.clone();
+                        active_transcript = ev.transcript_path.clone();
                     }
                 }
             }
+
+            // Read the active session's transcript tail for model + context %.
+            // Missing/unreadable transcript → both stay None (frontend shows "—").
+            let (model, context_percent) = active_transcript
+                .as_deref()
+                .filter(|p| !p.is_empty())
+                .and_then(|p| read_tail(p, TRANSCRIPT_TAIL_BYTES))
+                .and_then(|tail| session::latest_usage_and_model(&tail))
+                .map(|um| {
+                    let pct = session::context_percent(&um.usage, &um.model);
+                    (Some(session::model_friendly_name(&um.model)), Some(pct))
+                })
+                .unwrap_or((None, None));
+
             let hud = HudSnapshot {
                 session_label: active_cwd
                     .as_deref()
                     .map(session::session_label)
                     .unwrap_or_default(),
                 session_id: active_session.clone().unwrap_or_default(),
+                model,
+                context_percent,
             };
             if hud != last_hud {
                 let _ = app.emit("hud", &hud);

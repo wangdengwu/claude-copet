@@ -5,6 +5,8 @@ import { SHEETS } from "./sprites";
 import { startRenderLoop } from "./render";
 import { createBubble } from "./bubble";
 import { mountSettingsPanel, openSettings } from "./settings";
+import { formatHud } from "./hud";
+import type { HudState } from "./hud";
 
 const card = document.getElementById("card") as HTMLElement;
 const canvas = document.getElementById("pet") as HTMLCanvasElement;
@@ -35,20 +37,37 @@ const controller = startRenderLoop(canvas, SHEETS.idle);
 
 const hudInfo = document.getElementById("hud-info") as HTMLElement;
 
-const labelEl = document.createElement("div");
+// Top row: session label · model badge.
+const topRow = document.createElement("div");
+topRow.className = "hud-top";
+const labelEl = document.createElement("span");
 labelEl.className = "hud-label";
 labelEl.textContent = "—";
-hudInfo.appendChild(labelEl);
+const modelEl = document.createElement("span");
+modelEl.className = "hud-model";
+modelEl.textContent = "—";
+topRow.append(labelEl, document.createTextNode(" · "), modelEl);
 
-interface HudPayload {
-  sessionLabel: string;
-  sessionId: string;
-}
+// Context bar: a coloured fill (green/amber/red) + a percent label.
+const barRow = document.createElement("div");
+barRow.className = "hud-bar";
+const barFill = document.createElement("div");
+barFill.className = "hud-bar-fill";
+const barText = document.createElement("span");
+barText.className = "hud-bar-text";
+barText.textContent = "—";
+barRow.append(barFill, barText);
 
-listen<HudPayload>("hud", (event) => {
-  const { sessionLabel, sessionId } = event.payload;
-  labelEl.textContent = sessionLabel || "—";
-  labelEl.title = sessionId || "";
+hudInfo.append(topRow, barRow);
+
+listen<HudState>("hud", (event) => {
+  const view = formatHud(event.payload);
+  labelEl.textContent = view.label;
+  labelEl.title = event.payload.sessionId || "";
+  modelEl.textContent = view.model;
+  barFill.style.width = `${view.barWidthPct}%`;
+  barText.textContent = view.contextText;
+  barRow.dataset.band = view.colorBand;
 }).catch(() => {
   /* not running inside Tauri — no live session */
 });
