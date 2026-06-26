@@ -112,6 +112,39 @@ body {
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6);
 }
 
+/* Bottom row: current activity. Truncates rather than wraps. */
+.hud-activity {
+  font-size: 11px;
+  color: #c9ccd2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Needs-human alert: the whole card turns amber and pulses; the activity row
+   becomes a prominent warning. */
+.hud-card.needs-human {
+  animation: needs-human-pulse 1.1s ease-in-out infinite;
+}
+
+.hud-card.needs-human .hud-activity {
+  color: #fff0cf;
+  font-weight: 700;
+}
+
+/* Pulse the card background + an inset amber ring (an outer glow would clip,
+   since the card fills the whole frameless window). */
+@keyframes needs-human-pulse {
+  0%, 100% {
+    background: rgba(108, 73, 10, 0.9);
+    box-shadow: inset 0 0 0 2px rgba(243, 178, 60, 0.45);
+  }
+  50% {
+    background: rgba(150, 102, 14, 0.96);
+    box-shadow: inset 0 0 0 2px rgba(243, 178, 60, 0.95);
+  }
+}
+
 /* Pixel speech bubble, centered above the sprite. Fades via opacity; the data-show
    attribute is toggled from JS. pointer-events:none so it never steals clicks. */
 .bubble {

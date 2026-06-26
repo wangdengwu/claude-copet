@@ -6,6 +6,37 @@
 
 use serde::Deserialize;
 
+use crate::events::{Event, Mood};
+
+/// Fold one event into the needs-human attention flag.
+/// Set on `Notification` (permission/input wait) and `Stop` (turn finished —
+/// your turn); cleared on `UserPromptSubmit` and `PreToolUse` (work resumed);
+/// any other event leaves the flag unchanged.
+pub fn attention_step(flag: bool, event: &Event) -> bool {
+    match event.event_type.as_str() {
+        "Notification" | "Stop" => true,
+        "UserPromptSubmit" | "PreToolUse" => false,
+        _ => flag,
+    }
+}
+
+/// The current-activity line: "Running <tool>" while a tool runs, "Idle" when
+/// the mood is quiet, and a short label for other active moods.
+pub fn activity_label(mood: Mood, last_tool: Option<&str>) -> String {
+    match mood {
+        Mood::Idle | Mood::Sleep => "Idle".to_string(),
+        Mood::Work => match last_tool {
+            Some(t) if !t.is_empty() => format!("Running {t}"),
+            _ => "Working".to_string(),
+        },
+        Mood::Wake => "Starting".to_string(),
+        Mood::Listen => "Thinking".to_string(),
+        Mood::Panic => "Needs attention".to_string(),
+        Mood::Happy => "Done".to_string(),
+        Mood::Tired => "Working".to_string(),
+    }
+}
+
 /// The token-usage components that count toward the context window. Mirrors the
 /// fields of a transcript assistant message's `usage` block (others ignored).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]

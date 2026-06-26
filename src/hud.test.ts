@@ -1,7 +1,9 @@
 import { test, expect } from "vitest";
 import { formatHud } from "./hud";
 
-const base = { sessionLabel: "claude-copet", sessionId: "s1" };
+const base = { sessionLabel: "claude-copet", sessionId: "s1", activity: "Idle", needsHuman: false };
+
+const NEEDS_HUMAN_TEXT = "⚠ 等你输入 / 授权";
 
 test("label and model pass through; percent renders as a rounded number", () => {
   const v = formatHud({ ...base, model: "Opus 4.8", contextPercent: 61.7 });
@@ -34,6 +36,30 @@ test("null context/model degrade to em dash, zero-width bar, no colour band", ()
 });
 
 test("empty session label degrades to em dash", () => {
-  const v = formatHud({ sessionLabel: "", sessionId: "", model: null, contextPercent: null });
+  const v = formatHud({
+    sessionLabel: "",
+    sessionId: "",
+    model: null,
+    contextPercent: null,
+    activity: "Idle",
+    needsHuman: false,
+  });
   expect(v.label).toBe("—");
+});
+
+test("bottom row shows the activity when no human is needed", () => {
+  const v = formatHud({ ...base, model: "x", contextPercent: 10, activity: "Running Bash", needsHuman: false });
+  expect(v.activityText).toBe("Running Bash");
+  expect(v.needsHuman).toBe(false);
+});
+
+test("empty activity falls back to Idle", () => {
+  const v = formatHud({ ...base, model: "x", contextPercent: 10, activity: "", needsHuman: false });
+  expect(v.activityText).toBe("Idle");
+});
+
+test("needs-human overrides the bottom row with the warning line and sets the flag", () => {
+  const v = formatHud({ ...base, model: "x", contextPercent: 10, activity: "Running Bash", needsHuman: true });
+  expect(v.activityText).toBe(NEEDS_HUMAN_TEXT);
+  expect(v.needsHuman).toBe(true);
 });

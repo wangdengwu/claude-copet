@@ -1,5 +1,5 @@
 use claude_copet_lib::events::{Event, Mood};
-use claude_copet_lib::mood::{step, MoodState, Signals};
+use claude_copet_lib::mood::{step, MoodState};
 use std::time::Duration;
 
 fn make_event(event_type: &str) -> Event {

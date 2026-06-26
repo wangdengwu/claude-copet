@@ -34,6 +34,12 @@ struct HudSnapshot {
     /// Context used as a percentage, or `null` when no transcript is readable.
     #[serde(rename = "contextPercent")]
     context_percent: Option<f64>,
+    /// Current activity line, e.g. "Running Bash" or "Idle".
+    #[serde(rename = "activity")]
+    activity: String,
+    /// True while Claude is waiting on the user (permission/input or turn done).
+    #[serde(rename = "needsHuman")]
+    needs_human: bool,
 }
 
 /// Read at most `max_bytes` from the END of `path` (a bounded tail — never loads
@@ -130,6 +136,12 @@ fn watch_event_log(app: tauri::AppHandle) {
     let mut active_session: Option<String> = None;
     let mut active_cwd: Option<String> = None;
     let mut active_transcript: Option<String> = None;
+    // Cached transcript-derived fields (refreshed only on event batches, since the
+    // transcript only grows on events) + the running activity/attention state.
+    let mut cached_model: Option<String> = None;
+    let mut cached_context: Option<f64> = None;
+    let mut last_tool: Option<String> = None;
+    let mut attention = false;
     let mut last_hud = HudSnapshot::default();
     let _ = app.emit("hud", &last_hud);
 
@@ -151,7 +163,7 @@ fn watch_event_log(app: tauri::AppHandle) {
             }
         }
 
-        // ── Active session: the latest event carrying a session owns the card ──
+        // ── Active session + attention + activity inputs (event-driven) ──
         if !new_events.is_empty() {
             for ev in &new_events {
                 if let Some(s) = &ev.session {
@@ -161,10 +173,20 @@ fn watch_event_log(app: tauri::AppHandle) {
                         active_transcript = ev.transcript_path.clone();
                     }
                 }
+                // Needs-human flag transitions on the event stream.
+                attention = session::attention_step(attention, ev);
+                // Remember the most recent tool for the activity line.
+                if ev.event_type == "PreToolUse" {
+                    if let Some(t) = &ev.tool {
+                        if !t.is_empty() {
+                            last_tool = Some(t.clone());
+                        }
+                    }
+                }
             }
 
-            // Read the active session's transcript tail for model + context %.
-            // Missing/unreadable transcript → both stay None (frontend shows "—").
+            // Refresh model + context % from the active session's transcript tail
+            // (bounded read). Missing/unreadable → both None (frontend shows "—").
             let (model, context_percent) = active_transcript
                 .as_deref()
                 .filter(|p| !p.is_empty())
@@ -175,20 +197,8 @@ fn watch_event_log(app: tauri::AppHandle) {
                     (Some(session::model_friendly_name(&um.model)), Some(pct))
                 })
                 .unwrap_or((None, None));
-
-            let hud = HudSnapshot {
-                session_label: active_cwd
-                    .as_deref()
-                    .map(session::session_label)
-                    .unwrap_or_default(),
-                session_id: active_session.clone().unwrap_or_default(),
-                model,
-                context_percent,
-            };
-            if hud != last_hud {
-                let _ = app.emit("hud", &hud);
-                last_hud = hud;
-            }
+            cached_model = model;
+            cached_context = context_percent;
         }
 
         // ── Mood: drive the state machine ──
@@ -212,6 +222,24 @@ fn watch_event_log(app: tauri::AppHandle) {
                     announce(&app, mood_state.mood);
                 }
             }
+        }
+
+        // ── HUD: rebuild every tick (so activity decays to "Idle" and the
+        //    needs-human alert clears even on quiet polls) and emit on change. ──
+        let hud = HudSnapshot {
+            session_label: active_cwd
+                .as_deref()
+                .map(session::session_label)
+                .unwrap_or_default(),
+            session_id: active_session.clone().unwrap_or_default(),
+            model: cached_model.clone(),
+            context_percent: cached_context,
+            activity: session::activity_label(mood_state.mood, last_tool.as_deref()),
+            needs_human: attention,
+        };
+        if hud != last_hud {
+            let _ = app.emit("hud", &hud);
+            last_hud = hud;
         }
     }
 }

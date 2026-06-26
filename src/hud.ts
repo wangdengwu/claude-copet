@@ -7,7 +7,8 @@ export interface HudState {
   sessionId: string;
   model: string | null;
   contextPercent: number | null;
-  // Slice 4 adds: activity, needsHuman.
+  activity: string;
+  needsHuman: boolean;
 }
 
 export type ColorBand = "green" | "amber" | "red" | "none";
@@ -18,7 +19,12 @@ export interface HudView {
   contextText: string;
   barWidthPct: number;
   colorBand: ColorBand;
+  activityText: string;
+  needsHuman: boolean;
 }
+
+// Warning line shown when Claude is waiting on the user (matches the PRD).
+const NEEDS_HUMAN_TEXT = "⚠ 等你输入 / 授权";
 
 // Colour thresholds: green headroom, amber caution, red near-full.
 const AMBER_AT = 70;
@@ -41,5 +47,7 @@ export function formatHud(state: HudState): HudView {
     contextText: hasPct ? `${Math.round(pct)}%` : "—",
     barWidthPct: pct,
     colorBand: hasPct ? bandFor(pct) : "none",
+    activityText: state.needsHuman ? NEEDS_HUMAN_TEXT : (state.activity || "Idle"),
+    needsHuman: !!state.needsHuman,
   };
 }

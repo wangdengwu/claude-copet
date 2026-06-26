@@ -58,7 +58,12 @@ barText.className = "hud-bar-text";
 barText.textContent = "—";
 barRow.append(barFill, barText);
 
-hudInfo.append(topRow, barRow);
+// Bottom row: current activity, or the needs-human warning when waiting.
+const activityRow = document.createElement("div");
+activityRow.className = "hud-activity";
+activityRow.textContent = "Idle";
+
+hudInfo.append(topRow, barRow, activityRow);
 
 listen<HudState>("hud", (event) => {
   const view = formatHud(event.payload);
@@ -68,6 +73,9 @@ listen<HudState>("hud", (event) => {
   barFill.style.width = `${view.barWidthPct}%`;
   barText.textContent = view.contextText;
   barRow.dataset.band = view.colorBand;
+  activityRow.textContent = view.activityText;
+  // The whole card turns amber and pulses when Claude is waiting on the user.
+  card.classList.toggle("needs-human", view.needsHuman);
 }).catch(() => {
   /* not running inside Tauri — no live session */
 });
