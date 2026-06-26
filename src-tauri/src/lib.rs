@@ -213,7 +213,7 @@ fn watch_event_log(app: tauri::AppHandle) {
                 .and_then(|p| read_tail(p, TRANSCRIPT_TAIL_BYTES))
                 .and_then(|tail| session::latest_usage_and_model(&tail))
             {
-                cached_context = Some(session::context_percent(&um.usage, &um.model));
+                cached_context = Some(session::context_percent(&um.usage, session::context_window(&um.model)));
                 cached_model = Some(session::model_friendly_name(&um.model));
             }
         }

@@ -8,6 +8,14 @@ use serde::Deserialize;
 
 use crate::events::{Event, Mood};
 
+/// Parsed context info from `claude -p --resume "/context"` output.
+pub struct ContextInfo {
+    /// The model alias as reported by the context command (e.g. "deepseek-v4-pro[1m]").
+    pub model_alias: String,
+    /// The context window size in tokens (e.g. 1_000_000).
+    pub window_size: u64,
+}
+
 /// Fold one event into the needs-human attention flag.
 /// Set on `Notification` (permission/input wait) and `Stop` (turn finished —
 /// your turn); cleared on `UserPromptSubmit` and `PreToolUse` (work resumed);
@@ -107,23 +115,16 @@ pub fn context_window(model_id: &str) -> u64 {
 /// Context used as a percentage of the model's window, summing the three input
 /// token components, clamped to `[0, 100]`.
 ///
-/// Real Claude Code transcripts record the canonical model id (e.g.
-/// `claude-opus-4-8`) even when a 1M-context session is active — the `[1m]`
-/// capability isn't reflected in the id. So we can't always tell the window from
-/// the id: if the observed usage already exceeds the declared (200k) window, we
-/// upgrade to the 1M tier rather than reporting a misleading 100%.
-pub fn context_percent(usage: &Usage, model_id: &str) -> f64 {
+/// The caller provides the window size explicitly (e.g. from `context_window`
+/// or from a `/context` parse).
+pub fn context_percent(usage: &Usage, window_size: u64) -> f64 {
     let used = usage.input_tokens
         + usage.cache_read_input_tokens
         + usage.cache_creation_input_tokens;
-    let mut window = context_window(model_id);
-    if used > window && window < 1_000_000 {
-        window = 1_000_000;
-    }
-    if window == 0 {
+    if window_size == 0 {
         return 0.0;
     }
-    let pct = (used as f64 / window as f64) * 100.0;
+    let pct = (used as f64 / window_size as f64) * 100.0;
     pct.clamp(0.0, 100.0)
 }
 
@@ -173,5 +174,98 @@ pub fn session_label(cwd: &str) -> String {
     match trimmed.rfind(['/', '\\']) {
         Some(i) => trimmed[i + 1..].to_string(),
         None => trimmed.to_string(),
+    }
+}
+
+/// True when the model id has changed since the last observation. Returns false
+/// when `previous` is `None` (first observation) or when it matches `current`;
+/// returns true when they differ.
+pub fn model_changed(previous: Option<&str>, current: &str) -> bool {
+    match previous {
+        None => false,
+        Some(prev) => prev != current,
+    }
+}
+
+/// Parse a single token-count string (may have `k`/`K`/`m`/`M` suffix, may be
+/// a decimal like `164.9k`) into the numeric token count.
+fn parse_token_count(raw: &str) -> u64 {
+    let s = raw.trim();
+    // Case-insensitive suffix handling.
+    let (base_str, factor): (&str, f64) = if s.ends_with('m') || s.ends_with('M') {
+        (&s[..s.len() - 1], 1_000_000.0)
+    } else if s.ends_with('k') || s.ends_with('K') {
+        (&s[..s.len() - 1], 1_000.0)
+    } else {
+        (s, 1.0)
+    };
+    let base: f64 = base_str.parse().unwrap_or(0.0);
+    (base * factor) as u64
+}
+
+/// Parse the stdout of `claude -p --resume "/context"` and return the model
+/// alias and context-window size.
+///
+/// Expected markdown-ish format:
+/// ```text
+/// ## Context Usage
+///
+/// **Model:** deepseek-v4-pro[1m]
+/// **Tokens:** 170k / 1m (17%)
+/// ```
+///
+/// Returns `None` if the Model or Tokens line is missing, or if the parsed
+/// window size is zero.
+pub fn parse_context_output(stdout: &str) -> Option<ContextInfo> {
+    let mut model_alias: Option<String> = None;
+    let mut window_size: Option<u64> = None;
+
+    for line in stdout.lines() {
+        if model_alias.is_none() {
+            if let Some(pos) = line.find("Model:") {
+                // Skip past "Model:" and any trailing `**` bold-terminators.
+                let after = &line[pos + "Model:".len()..];
+                let alias = after.trim_start_matches('*').trim();
+                if !alias.is_empty() {
+                    model_alias = Some(alias.to_string());
+                }
+            }
+        }
+        if window_size.is_none() {
+            if let Some(pos) = line.find("Tokens:") {
+                // Skip past "Tokens:" and any trailing `**` bold-terminators.
+                let after = &line[pos + "Tokens:".len()..];
+                let body = after.trim_start_matches('*').trim();
+                // Split on `/` — the right side is the window.
+                if let Some(rhs) = body.split('/').nth(1) {
+                    let rhs = rhs.trim();
+                    // Drop a trailing parenthesized percentage like (17%).
+                    let window_str = if let Some(paren) = rhs.find('(') {
+                        rhs[..paren].trim()
+                    } else {
+                        rhs
+                    };
+                    if !window_str.is_empty() {
+                        let sz = parse_token_count(window_str);
+                        if sz > 0 {
+                            window_size = Some(sz);
+                        }
+                    }
+                }
+            }
+        }
+        if model_alias.is_some() && window_size.is_some() {
+            break;
+        }
+    }
+
+    match (model_alias, window_size) {
+        (Some(model_alias), Some(window_size)) if window_size > 0 => {
+            Some(ContextInfo {
+                model_alias,
+                window_size,
+            })
+        }
+        _ => None,
     }
 }
