@@ -1,7 +1,8 @@
 # Wiring claude-copet into Claude Code
 
-claude-copet "feels" Claude Code by reading an append-only event log that Claude
-Code's hooks write to. Set the hooks up once and the pet reacts in real time.
+claude-copet shows a status HUD for your active Claude Code session by reading an
+append-only event log that Claude Code's hooks write to. Set the hooks up once and
+the card updates in real time.
 
 > **Easiest: one click.** Open the pet's Settings (right-click → Settings, or the
 > gear) → **Claude Code → Connect**. It installs the hooks into
@@ -14,11 +15,14 @@ Code's hooks write to. Set the hooks up once and the pet reacts in real time.
 - **Path:** `~/.claude-copet/events.jsonl` (`%USERPROFILE%\.claude-copet\events.jsonl` on Windows).
 - **Format:** append-only JSONL — one JSON object per line:
   ```json
-  {"ts":"2026-06-25T12:00:00Z","type":"PreToolUse","tool":"Bash","session":"abc123"}
+  {"ts":"2026-06-26T12:00:00Z","type":"PreToolUse","tool":"Bash","session":"abc123","cwd":"/Users/me/proj","transcript_path":"/Users/me/.claude/projects/.../abc123.jsonl"}
   ```
-  Only `type` is required; malformed lines are skipped. The writer (the hook) never
-  assumes the pet is running, and the pet never assumes the writer is alive — if the
-  pet is off, events simply accumulate in the file and are not lost.
+  Only `type` is required; malformed lines are skipped, and `cwd` / `transcript_path`
+  are optional (older installs omit them). The HUD uses `cwd` for the session label,
+  `transcript_path` to read context-% + model, and `session` to follow the active
+  session. The writer (the hook) never assumes the app is running, and the app never
+  assumes the writer is alive — if the app is off, events simply accumulate and are
+  not lost.
 
 ## The hook script
 
@@ -48,9 +52,10 @@ Add this to your Claude Code `settings.json` (`~/.claude/settings.json`), replac
 }
 ```
 
-## Event → mood mapping (this slice)
+## Event → mood mapping (the corner pet)
 
-A direct, immediate mapping (decay/idle fall-back arrives in a later slice):
+The corner pet is a friendly accent driven by the event stream (with decay back to
+idle/sleep when quiet):
 
 | Event              | Mood     | What you see                       |
 |--------------------|----------|------------------------------------|
@@ -61,8 +66,9 @@ A direct, immediate mapping (decay/idle fall-back arrives in a later slice):
 | `Stop`             | `happy`  | pet celebrates the finished turn   |
 | `PostToolUse`      | —        | no change (keeps the current mood) |
 
-To sanity-check without Claude Code, append a line by hand while the pet is running:
+To sanity-check without Claude Code, append a line by hand while the app is running
+(include `cwd` / `transcript_path` to also exercise the session label and context-%):
 
 ```sh
-echo '{"ts":"now","type":"PreToolUse","tool":"Bash","session":"test"}' >> ~/.claude-copet/events.jsonl
+echo '{"ts":"now","type":"PreToolUse","tool":"Bash","session":"test","cwd":"/Users/me/demo","transcript_path":""}' >> ~/.claude-copet/events.jsonl
 ```
