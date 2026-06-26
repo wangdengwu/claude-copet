@@ -48,3 +48,34 @@ fn hook_appends_enriched_line_and_exits_zero() {
     assert_eq!(v["cwd"], "/Users/me/proj");
     assert_eq!(v["transcript_path"], "/tmp/t.jsonl");
 }
+
+/// Real Claude Code payloads nest a `tool_input` object that can carry colliding
+/// keys (e.g. a tool argument literally named "cwd"). The session-level `cwd`
+/// is top-level and must win — a greedy match would wrongly grab the nested one.
+#[test]
+fn top_level_cwd_wins_over_a_nested_tool_input_key() {
+    let home = TempDir::new().expect("temp home");
+
+    // Top-level cwd is the session dir; tool_input has its own bogus "cwd".
+    let payload = r#"{"session_id":"s1","transcript_path":"/tmp/t.jsonl","cwd":"/Users/me/realproj","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls","cwd":"/some/other/dir"}}"#;
+
+    let mut child = Command::new("sh")
+        .arg(script_path())
+        .arg("PreToolUse")
+        .env("HOME", home.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
+        .expect("spawn hook");
+    child.stdin.take().unwrap().write_all(payload.as_bytes()).unwrap();
+    assert!(child.wait().expect("wait").success());
+
+    let log = home.path().join(".claude-copet").join("events.jsonl");
+    let contents = std::fs::read_to_string(&log).expect("log");
+    let v: serde_json::Value =
+        serde_json::from_str(contents.lines().last().unwrap()).expect("valid JSON");
+
+    assert_eq!(v["cwd"], "/Users/me/realproj", "top-level session cwd must win");
+    assert_eq!(v["tool"], "Bash");
+    assert_eq!(v["session"], "s1");
+}

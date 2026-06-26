@@ -20,10 +20,16 @@ mkdir -p "$dir" 2>/dev/null
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)
 input=$(cat 2>/dev/null)
 
-tool=$(printf '%s' "$input" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
-session=$(printf '%s' "$input" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
-cwd=$(printf '%s' "$input" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
-transcript=$(printf '%s' "$input" | sed -n 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+# Claude Code's payload nests a "tool_input" object (always after the session-level
+# keys) whose tool arguments can collide with our key names (e.g. a literal "cwd").
+# Our sed prefix is greedy, so it would grab the LAST occurrence — strip everything
+# from "tool_input" onward first so only the top-level session keys remain.
+meta=$(printf '%s' "$input" | sed 's/"tool_input".*//')
+
+tool=$(printf '%s' "$meta" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+session=$(printf '%s' "$meta" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+cwd=$(printf '%s' "$meta" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+transcript=$(printf '%s' "$meta" | sed -n 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
 
 printf '{"ts":"%s","type":"%s","tool":"%s","session":"%s","cwd":"%s","transcript_path":"%s"}\n' \
   "$ts" "$type" "$tool" "$session" "$cwd" "$transcript" >> "$log" 2>/dev/null

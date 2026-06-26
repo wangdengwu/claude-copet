@@ -56,7 +56,10 @@ fn read_tail(path: &str, max_bytes: u64) -> Option<Vec<u8>> {
 }
 
 /// How much of a transcript tail we read to find the latest assistant usage.
-const TRANSCRIPT_TAIL_BYTES: u64 = 512 * 1024;
+/// Generous so the most recent assistant line (which can be large near full
+/// context — exactly when the % matters most) isn't truncated at the tail's head.
+/// Still bounded — never the whole file.
+const TRANSCRIPT_TAIL_BYTES: u64 = 2 * 1024 * 1024;
 
 /// The event-log location, shared by the Claude Code hooks and this watcher.
 /// `$HOME/.claude-copet/events.jsonl` (`%USERPROFILE%` on Windows).
@@ -165,6 +168,7 @@ fn watch_event_log(app: tauri::AppHandle) {
 
         // ── Active session + attention + activity inputs (event-driven) ──
         if !new_events.is_empty() {
+            let prev_session = active_session.clone();
             for ev in &new_events {
                 if let Some(s) = &ev.session {
                     if !s.is_empty() {
@@ -175,30 +179,43 @@ fn watch_event_log(app: tauri::AppHandle) {
                 }
                 // Needs-human flag transitions on the event stream.
                 attention = session::attention_step(attention, ev);
-                // Remember the most recent tool for the activity line.
-                if ev.event_type == "PreToolUse" {
-                    if let Some(t) = &ev.tool {
-                        if !t.is_empty() {
-                            last_tool = Some(t.clone());
+                // Track the running tool: set on PreToolUse, cleared once the tool
+                // finishes (PostToolUse) or the turn ends (Stop) so the activity
+                // line doesn't show a stale "Running <tool>".
+                match ev.event_type.as_str() {
+                    "PreToolUse" => {
+                        if let Some(t) = &ev.tool {
+                            if !t.is_empty() {
+                                last_tool = Some(t.clone());
+                            }
                         }
                     }
+                    "PostToolUse" | "Stop" => last_tool = None,
+                    _ => {}
                 }
             }
 
+            // A new session owns the card: drop the previous session's cached
+            // model / context % (and tool) so we don't show stale figures.
+            if active_session != prev_session {
+                cached_model = None;
+                cached_context = None;
+                last_tool = None;
+            }
+
             // Refresh model + context % from the active session's transcript tail
-            // (bounded read). Missing/unreadable → both None (frontend shows "—").
-            let (model, context_percent) = active_transcript
+            // (bounded read). Only overwrite the cache on a SUCCESSFUL read, so a
+            // transient unreadable/incomplete transcript (common before the first
+            // assistant turn is flushed) doesn't flicker the card back to "—".
+            if let Some(um) = active_transcript
                 .as_deref()
                 .filter(|p| !p.is_empty())
                 .and_then(|p| read_tail(p, TRANSCRIPT_TAIL_BYTES))
                 .and_then(|tail| session::latest_usage_and_model(&tail))
-                .map(|um| {
-                    let pct = session::context_percent(&um.usage, &um.model);
-                    (Some(session::model_friendly_name(&um.model)), Some(pct))
-                })
-                .unwrap_or((None, None));
-            cached_model = model;
-            cached_context = context_percent;
+            {
+                cached_context = Some(session::context_percent(&um.usage, &um.model));
+                cached_model = Some(session::model_friendly_name(&um.model));
+            }
         }
 
         // ── Mood: drive the state machine ──
