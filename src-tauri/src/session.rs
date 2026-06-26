@@ -106,11 +106,20 @@ pub fn context_window(model_id: &str) -> u64 {
 
 /// Context used as a percentage of the model's window, summing the three input
 /// token components, clamped to `[0, 100]`.
+///
+/// Real Claude Code transcripts record the canonical model id (e.g.
+/// `claude-opus-4-8`) even when a 1M-context session is active — the `[1m]`
+/// capability isn't reflected in the id. So we can't always tell the window from
+/// the id: if the observed usage already exceeds the declared (200k) window, we
+/// upgrade to the 1M tier rather than reporting a misleading 100%.
 pub fn context_percent(usage: &Usage, model_id: &str) -> f64 {
     let used = usage.input_tokens
         + usage.cache_read_input_tokens
         + usage.cache_creation_input_tokens;
-    let window = context_window(model_id);
+    let mut window = context_window(model_id);
+    if used > window && window < 1_000_000 {
+        window = 1_000_000;
+    }
     if window == 0 {
         return 0.0;
     }

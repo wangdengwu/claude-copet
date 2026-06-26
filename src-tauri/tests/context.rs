@@ -86,15 +86,26 @@ fn percent_sums_all_three_token_components() {
 #[test]
 fn percent_clamps_to_0_and_100() {
     assert!((context_percent(&usage(0, 0, 0), "claude-opus-4-8") - 0.0).abs() < EPS);
-    let over = context_percent(&usage(500_000, 0, 0), "claude-opus-4-8");
+    // Beyond the largest known window (1M) still clamps at 100.
+    let over = context_percent(&usage(1_500_000, 0, 0), "claude-opus-4-8");
     assert!((over - 100.0).abs() < EPS, "must clamp at 100, got {over}");
 }
 
 #[test]
 fn percent_uses_the_1m_window_for_1m_models() {
-    // 500_000 / 1_000_000 = 50% (would be clamped to 100 against a 200k window).
+    // 500_000 / 1_000_000 = 50%.
     let p = context_percent(&usage(500_000, 0, 0), "claude-opus-4-8[1m]");
     assert!((p - 50.0).abs() < EPS, "got {p}");
+}
+
+#[test]
+fn percent_upgrades_to_1m_when_usage_exceeds_the_200k_tier() {
+    // Real Claude Code transcripts record the canonical id ("claude-opus-4-8")
+    // even for a 1M-context session, so we can't tell from the id alone. When the
+    // observed usage exceeds the 200k tier, treat the window as 1M instead of
+    // clamping to a misleading 100%. (Regression: a ~215k 1M session showed 100%.)
+    let p = context_percent(&usage(2, 214_355, 891), "claude-opus-4-8");
+    assert!((p - 21.5).abs() < 0.1, "expected ~21.5%, got {p}");
 }
 
 // ─────────────────────────── model_friendly_name ─────────────────────────────
