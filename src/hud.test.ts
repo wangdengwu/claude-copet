@@ -84,8 +84,8 @@ const usagePayload = {
 test("usage shows time remaining with a ⏳ symbol: 5h as h+m, 7d as d+h", () => {
   const v = formatHud({ ...base, model: "x", contextPercent: 10, usage: usagePayload }, NOW);
   expect(v.usage).not.toBeNull();
-  expect(v.usage!.fiveHour.text).toBe("5h 31% · ⏳ 14h 59m");
-  expect(v.usage!.sevenDay.text).toBe("7d 77% · ⏳ 4d 6h");
+  expect(v.usage!.fiveHour.text).toBe("5h 31% ⏳ 14h 59m");
+  expect(v.usage!.sevenDay.text).toBe("7d 77% ⏳ 4d 6h");
 });
 
 test("usage band follows the same thresholds as context (amber ≥70, red ≥90)", () => {
@@ -119,7 +119,7 @@ test("a reset already in the past clamps to zero (not a negative countdown)", ()
     ...base, model: "x", contextPercent: 10,
     usage: { sessionPercent: 31, sessionReset: "Jun 26 at 8am", weekPercent: 77, weekReset: "Jun 30 at 3pm" },
   }, NOW);
-  expect(v.usage!.fiveHour.text).toBe("5h 31% · ⏳ 0m");
+  expect(v.usage!.fiveHour.text).toBe("5h 31% ⏳ 0m");
 });
 
 test("usage percent is rounded for display", () => {
@@ -127,7 +127,7 @@ test("usage percent is rounded for display", () => {
     ...base, model: "x", contextPercent: 10,
     usage: { ...usagePayload, sessionPercent: 30.6 as unknown as number },
   }, NOW);
-  expect(v.usage!.fiveHour.text).toBe("5h 31% · ⏳ 14h 59m");
+  expect(v.usage!.fiveHour.text).toBe("5h 31% ⏳ 14h 59m");
 });
 
 // ── parseResetToMs / formatRemaining (pure helpers) ──

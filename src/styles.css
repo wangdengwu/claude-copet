@@ -153,12 +153,19 @@ body {
   font-size: 10px;
   line-height: 1.3;
   color: #9aa0aa;
-  white-space: nowrap;
   overflow: hidden;
 }
 
+/* The two windows stack vertically — 5h on top, 7d below — so they read as
+   distinct lines. The refresh button sits to their right. */
+.hud-usage-lines {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .hud-usage-line {
-  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 /* Band colours for the usage lines, mirroring the context-bar palette. */

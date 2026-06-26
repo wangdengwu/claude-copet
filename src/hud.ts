@@ -111,12 +111,14 @@ export function formatRemaining(targetMs: number, nowMs: number, kind: "session"
   return d > 0 ? `⏳ ${d}d ${h}h` : `⏳ ${h}h`;
 }
 
-/** Build a usage line "5h 31% · 还剩 2h 15m", or just "5h 31%" when the reset
- *  phrase can't be parsed into an instant. */
+/** Build a usage line "5h 31% ⏳ 2h 15m" — percent and countdown are one unit, so
+ *  no separator between them — or just "5h 31%" when the reset phrase can't be
+ *  parsed into an instant. (The two windows are separated by being on their own
+ *  rows in the DOM, not by an inline separator.) */
 function usageLine(prefix: string, pct: number, reset: string, nowMs: number, kind: "session" | "week"): string {
   const base = `${prefix} ${Math.round(pct)}%`;
   const target = parseResetToMs(reset, nowMs);
-  return target === null ? base : `${base} · ${formatRemaining(target, nowMs, kind)}`;
+  return target === null ? base : `${base} ${formatRemaining(target, nowMs, kind)}`;
 }
 
 export function formatHud(state: HudState, nowMs: number = Date.now()): HudView {

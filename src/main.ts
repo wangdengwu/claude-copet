@@ -68,10 +68,15 @@ const usageBlock = document.createElement("div");
 usageBlock.className = "hud-usage";
 usageBlock.style.display = "none";
 
+// The two windows stack as separate rows so 5h and 7d read as distinct lines;
+// within each, percent and countdown are one unit (no separator).
+const usageLines = document.createElement("div");
+usageLines.className = "hud-usage-lines";
 const fiveHourEl = document.createElement("span");
 fiveHourEl.className = "hud-usage-line";
 const sevenDayEl = document.createElement("span");
 sevenDayEl.className = "hud-usage-line";
+usageLines.append(fiveHourEl, sevenDayEl);
 
 const refreshBtn = document.createElement("button");
 refreshBtn.className = "hud-usage-refresh";
@@ -87,7 +92,7 @@ refreshBtn.addEventListener("click", async () => {
   await invokeOrNull("refresh_usage");
 });
 
-usageBlock.append(fiveHourEl, sevenDayEl, refreshBtn);
+usageBlock.append(usageLines, refreshBtn);
 
 hudInfo.append(topRow, barRow, activityRow, usageBlock);
 
