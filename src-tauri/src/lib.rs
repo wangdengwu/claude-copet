@@ -228,6 +228,10 @@ fn watch_event_log(app: tauri::AppHandle) {
             // A new session owns the card: drop the previous session's cached
             // model / context % (and tool) so we don't show stale figures.
             if active_session != prev_session {
+                eprintln!(
+                    "[hud] session switch: {:?} → {:?}, clear cache + trigger /context",
+                    prev_session, active_session
+                );
                 *cached_ctx.lock().unwrap() = None;
                 cached_model = None;
                 cached_context = None;
@@ -239,19 +243,45 @@ fn watch_event_log(app: tauri::AppHandle) {
             // (bounded read). Only overwrite the cache on a SUCCESSFUL read, so a
             // transient unreadable/incomplete transcript (common before the first
             // assistant turn is flushed) doesn't flicker the card back to "—".
-            if let Some(um) = active_transcript
+            let read_result = active_transcript
                 .as_deref()
                 .filter(|p| !p.is_empty())
                 .and_then(|p| read_tail(p, TRANSCRIPT_TAIL_BYTES))
-                .and_then(|tail| session::latest_usage_and_model(&tail))
-            {
+                .and_then(|tail| session::latest_usage_and_model(&tail));
+            eprintln!(
+                "[hud] transcript: path={:?} hit={}",
+                active_transcript,
+                read_result.is_some()
+            );
+            if let Some(um) = read_result {
+                // Update last_transcript_model FIRST — before the model_changed
+                // check — so the first read after a /context fetch doesn't
+                // falsely detect a mismatch (the thread leaves it empty).
+                if let Some(ref mut ctx) = *cached_ctx.lock().unwrap() {
+                    if ctx.last_transcript_model.is_empty() {
+                        ctx.last_transcript_model = um.model.clone();
+                    }
+                }
+
                 // Model mismatch detection: if the transcript model differs from
                 // the one last seen at /context fetch time, re-fetch context.
-                let model_different = match &*cached_ctx.lock().unwrap() {
-                    Some(ctx) => {
-                        session::model_changed(Some(&ctx.last_transcript_model), &um.model)
+                let model_different = {
+                    let mut guard = cached_ctx.lock().unwrap();
+                    match &mut *guard {
+                        Some(ctx) => {
+                            let diff = session::model_changed(Some(&ctx.last_transcript_model), &um.model);
+                            if diff {
+                                eprintln!(
+                                    "[hud] model mismatch: last={} curr={} → trigger /context",
+                                    ctx.last_transcript_model, um.model
+                                );
+                                // Update baseline so we don't re-fire on every tick.
+                                ctx.last_transcript_model = um.model.clone();
+                            }
+                            diff
+                        }
+                        None => false,
                     }
-                    None => false,
                 };
                 if model_different {
                     context_needs_refresh = true;
@@ -260,11 +290,18 @@ fn watch_event_log(app: tauri::AppHandle) {
                 // Compute window using L1 (cached /context) or L3 fallback.
                 let window = {
                     let guard = cached_ctx.lock().unwrap();
-                    session::resolve_window(
-                        guard.as_ref().map(|c| c.window_size),
+                    let cached = guard.as_ref().map(|c| c.window_size);
+                    let w = session::resolve_window(
+                        cached,
                         &um.usage,
                         &um.model,
-                    )
+                    );
+                    let used = um.usage.input_tokens + um.usage.cache_read_input_tokens + um.usage.cache_creation_input_tokens;
+                    eprintln!(
+                        "[hud] window: {w} (cached={cached:?}, used={used}, model={})",
+                        um.model
+                    );
+                    w
                 };
                 cached_context =
                     Some(session::context_percent(&um.usage, window));
@@ -278,11 +315,7 @@ fn watch_event_log(app: tauri::AppHandle) {
                         .or_else(|| Some(session::model_friendly_name(&um.model)))
                 };
 
-                // Update last_transcript_model so the next tick can detect when
-                // the transcript model changes from the /context baseline.
-                if let Some(ref mut ctx) = *cached_ctx.lock().unwrap() {
-                    ctx.last_transcript_model = um.model.clone();
-                }
+                // last_transcript_model already updated above (before window).
             }
         }
 
@@ -323,6 +356,10 @@ fn watch_event_log(app: tauri::AppHandle) {
             needs_human: attention,
         };
         if hud != last_hud {
+            eprintln!(
+                "[hud] emit: model={:?} ctx%={:?}",
+                hud.model, hud.context_percent
+            );
             let _ = app.emit("hud", &hud);
             last_hud = hud;
         }
@@ -333,6 +370,7 @@ fn watch_event_log(app: tauri::AppHandle) {
             if !sid.is_empty() {
                 *context_in_flight.lock().unwrap() = true;
                 context_needs_refresh = false;
+                eprintln!("[hud] /context spawn: sid={sid}");
                 let ctx_clone = cached_ctx.clone();
                 let inflight_clone = context_in_flight.clone();
                 std::thread::spawn(move || {
@@ -341,27 +379,40 @@ fn watch_event_log(app: tauri::AppHandle) {
                     let max_attempts: u8 = 2;
                     while attempt < max_attempts {
                         attempt += 1;
+                        eprintln!("[hud] /context attempt {attempt}/{max_attempts} for {sid}");
                         match client.fetch_context(&sid) {
                             Ok(stdout) => {
-                                if let Some(info) =
-                                    session::parse_context_output(&stdout)
-                                {
-                                    *ctx_clone.lock().unwrap() =
-                                        Some(session::CachedContext {
-                                            model_alias: info.model_alias,
-                                            window_size: info.window_size,
-                                            last_transcript_model: String::new(),
-                                        });
+                                match session::parse_context_output(&stdout) {
+                                    Some(info) => {
+                                        eprintln!(
+                                            "[hud] /context ok: alias={} window={}",
+                                            info.model_alias, info.window_size
+                                        );
+                                        *ctx_clone.lock().unwrap() =
+                                            Some(session::CachedContext {
+                                                model_alias: info.model_alias,
+                                                window_size: info.window_size,
+                                                last_transcript_model: String::new(),
+                                            });
+                                    }
+                                    None => {
+                                        eprintln!(
+                                            "[hud] /context parse failed, stdout={}",
+                                            &stdout[..stdout.len().min(200)]
+                                        );
+                                    }
                                 }
                                 break;
                             }
                             Err(()) => {
+                                eprintln!("[hud] /context attempt {attempt} FAILED");
                                 if attempt < max_attempts {
                                     std::thread::sleep(Duration::from_secs(2));
                                 }
                             }
                         }
                     }
+                    eprintln!("[hud] /context thread done");
                     *inflight_clone.lock().unwrap() = false;
                 });
             }
