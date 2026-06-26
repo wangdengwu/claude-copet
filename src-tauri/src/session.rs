@@ -118,6 +118,16 @@ pub fn latest_usage_and_model(tail_bytes: &[u8]) -> Option<UsageAndModel> {
         }
         let Some(msg) = parsed.message else { continue };
         if let (Some(model), Some(usage)) = (msg.model, msg.usage) {
+            // Skip synthetic/system messages that carry zero-usage placeholders.
+            if model == "<synthetic>" {
+                continue;
+            }
+            let total = usage.input_tokens
+                + usage.cache_read_input_tokens
+                + usage.cache_creation_input_tokens;
+            if total == 0 {
+                continue;
+            }
             found = Some(UsageAndModel { usage, model });
         }
     }

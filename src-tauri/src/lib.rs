@@ -146,10 +146,10 @@ fn announce(app: &tauri::AppHandle, mood: events::Mood) {
 /// and reset its decay timer; quiet polls are pure time ticks that let the mood
 /// decay. Mood is ephemeral — nothing is persisted.
 fn watch_event_log(app: tauri::AppHandle) {
-    let Some(log_path) = event_log_path() else {
-        return;
+        let Some(log_path) = event_log_path() else {
+                return;
     };
-
+    
     // Mood always starts at the current end of the log so pre-existing events
     // don't replay into the ephemeral mood engine.
     let mut mood_offset = fs::metadata(&log_path)
@@ -178,8 +178,10 @@ fn watch_event_log(app: tauri::AppHandle) {
     let mut context_needs_refresh = true;
     let _ = app.emit("hud", &last_hud);
 
+    let mut tick_count: u64 = 0;
     loop {
         std::thread::sleep(Duration::from_millis(250));
+        tick_count += 1;
         let now = Instant::now();
         let delta = now.duration_since(last);
         last = now;
@@ -192,6 +194,8 @@ fn watch_event_log(app: tauri::AppHandle) {
             if bytes.len() > mood_offset {
                 let (evs, new_offset) = events::parse(&bytes, mood_offset);
                 mood_offset = new_offset;
+                if !evs.is_empty() {
+                                    }
                 new_events = evs;
             }
         }
@@ -207,35 +211,38 @@ fn watch_event_log(app: tauri::AppHandle) {
                         active_transcript = ev.transcript_path.clone();
                     }
                 }
-                // Needs-human flag transitions on the event stream.
-                attention = session::attention_step(attention, ev);
-                // Track the running tool: set on PreToolUse, cleared once the tool
-                // finishes (PostToolUse) or the turn ends (Stop) so the activity
-                // line doesn't show a stale "Running <tool>".
-                match ev.event_type.as_str() {
-                    "PreToolUse" => {
-                        if let Some(t) = &ev.tool {
-                            if !t.is_empty() {
-                                last_tool = Some(t.clone());
+            }
+
+            // Only fold attention + tool for events matching the active session
+            // (the one shown on the card). Cross-session events are ignored here.
+            if let Some(ref active_sid) = active_session {
+                for ev in &new_events {
+                    if ev.session.as_deref() == Some(active_sid.as_str()) {
+                        attention = session::attention_step(attention, ev);
+                        match ev.event_type.as_str() {
+                            "PreToolUse" => {
+                                if let Some(t) = &ev.tool {
+                                    if !t.is_empty() {
+                                        last_tool = Some(t.clone());
+                                    }
+                                }
                             }
+                            "PostToolUse" | "Stop" => last_tool = None,
+                            _ => {}
                         }
                     }
-                    "PostToolUse" | "Stop" => last_tool = None,
-                    _ => {}
                 }
             }
 
             // A new session owns the card: drop the previous session's cached
-            // model / context % (and tool) so we don't show stale figures.
+            // model / context % / tool / attention so we don't show stale figures
+            // from a different session.
             if active_session != prev_session {
-                eprintln!(
-                    "[hud] session switch: {:?} → {:?}, clear cache + trigger /context",
-                    prev_session, active_session
-                );
-                *cached_ctx.lock().unwrap() = None;
+                                *cached_ctx.lock().unwrap() = None;
                 cached_model = None;
                 cached_context = None;
                 last_tool = None;
+                attention = false;
                 context_needs_refresh = true;
             }
 
@@ -248,12 +255,7 @@ fn watch_event_log(app: tauri::AppHandle) {
                 .filter(|p| !p.is_empty())
                 .and_then(|p| read_tail(p, TRANSCRIPT_TAIL_BYTES))
                 .and_then(|tail| session::latest_usage_and_model(&tail));
-            eprintln!(
-                "[hud] transcript: path={:?} hit={}",
-                active_transcript,
-                read_result.is_some()
-            );
-            if let Some(um) = read_result {
+                        if let Some(um) = read_result {
                 // Update last_transcript_model FIRST — before the model_changed
                 // check — so the first read after a /context fetch doesn't
                 // falsely detect a mismatch (the thread leaves it empty).
@@ -271,11 +273,7 @@ fn watch_event_log(app: tauri::AppHandle) {
                         Some(ctx) => {
                             let diff = session::model_changed(Some(&ctx.last_transcript_model), &um.model);
                             if diff {
-                                eprintln!(
-                                    "[hud] model mismatch: last={} curr={} → trigger /context",
-                                    ctx.last_transcript_model, um.model
-                                );
-                                // Update baseline so we don't re-fire on every tick.
+                                                                // Update baseline so we don't re-fire on every tick.
                                 ctx.last_transcript_model = um.model.clone();
                             }
                             diff
@@ -295,11 +293,6 @@ fn watch_event_log(app: tauri::AppHandle) {
                         cached,
                         &um.usage,
                         &um.model,
-                    );
-                    let used = um.usage.input_tokens + um.usage.cache_read_input_tokens + um.usage.cache_creation_input_tokens;
-                    eprintln!(
-                        "[hud] window: {w} (cached={cached:?}, used={used}, model={})",
-                        um.model
                     );
                     w
                 };
@@ -342,6 +335,9 @@ fn watch_event_log(app: tauri::AppHandle) {
             }
         }
 
+        if tick_count % 40 == 0 {
+                    }
+
         // ── HUD: rebuild every tick (so activity decays to "Idle" and the
         //    needs-human alert clears even on quiet polls) and emit on change. ──
         let hud = HudSnapshot {
@@ -356,11 +352,7 @@ fn watch_event_log(app: tauri::AppHandle) {
             needs_human: attention,
         };
         if hud != last_hud {
-            eprintln!(
-                "[hud] emit: model={:?} ctx%={:?}",
-                hud.model, hud.context_percent
-            );
-            let _ = app.emit("hud", &hud);
+                        let _ = app.emit("hud", &hud);
             last_hud = hud;
         }
 
@@ -370,8 +362,7 @@ fn watch_event_log(app: tauri::AppHandle) {
             if !sid.is_empty() {
                 *context_in_flight.lock().unwrap() = true;
                 context_needs_refresh = false;
-                eprintln!("[hud] /context spawn: sid={sid}");
-                let ctx_clone = cached_ctx.clone();
+                                let ctx_clone = cached_ctx.clone();
                 let inflight_clone = context_in_flight.clone();
                 std::thread::spawn(move || {
                     let client = ClaudeCliContextClient;
@@ -379,16 +370,11 @@ fn watch_event_log(app: tauri::AppHandle) {
                     let max_attempts: u8 = 2;
                     while attempt < max_attempts {
                         attempt += 1;
-                        eprintln!("[hud] /context attempt {attempt}/{max_attempts} for {sid}");
-                        match client.fetch_context(&sid) {
+                                                match client.fetch_context(&sid) {
                             Ok(stdout) => {
                                 match session::parse_context_output(&stdout) {
                                     Some(info) => {
-                                        eprintln!(
-                                            "[hud] /context ok: alias={} window={}",
-                                            info.model_alias, info.window_size
-                                        );
-                                        *ctx_clone.lock().unwrap() =
+                                                                                *ctx_clone.lock().unwrap() =
                                             Some(session::CachedContext {
                                                 model_alias: info.model_alias,
                                                 window_size: info.window_size,
@@ -396,24 +382,18 @@ fn watch_event_log(app: tauri::AppHandle) {
                                             });
                                     }
                                     None => {
-                                        eprintln!(
-                                            "[hud] /context parse failed, stdout={}",
-                                            &stdout[..stdout.len().min(200)]
-                                        );
-                                    }
+                                                                            }
                                 }
                                 break;
                             }
                             Err(()) => {
-                                eprintln!("[hud] /context attempt {attempt} FAILED");
-                                if attempt < max_attempts {
+                                                                if attempt < max_attempts {
                                     std::thread::sleep(Duration::from_secs(2));
                                 }
                             }
                         }
                     }
-                    eprintln!("[hud] /context thread done");
-                    *inflight_clone.lock().unwrap() = false;
+                                        *inflight_clone.lock().unwrap() = false;
                 });
             }
         }
