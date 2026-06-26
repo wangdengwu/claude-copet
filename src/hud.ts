@@ -93,23 +93,22 @@ export function parseResetToMs(phrase: string, nowMs: number): number | null {
 }
 
 /**
- * Format the time remaining until `targetMs`. `session` (5h window) → hours+
- * minutes; `week` (7d window) → days+hours. The larger unit is dropped when
- * zero. A non-positive remaining shows "已重置" (just reset).
+ * Format the time remaining until `targetMs`, prefixed with the ⏳ countdown
+ * symbol. `session` (5h window) → hours+minutes; `week` (7d window) → days+hours.
+ * The larger unit is dropped when zero. A non-positive remaining clamps to 0
+ * (`⏳ 0m` / `⏳ 0h`) — the window has just reset.
  */
 export function formatRemaining(targetMs: number, nowMs: number, kind: "session" | "week"): string {
-  const diff = targetMs - nowMs;
-  if (diff <= 0) return "已重置";
-  const totalMin = Math.floor(diff / 60_000);
+  const totalMin = Math.max(0, Math.floor((targetMs - nowMs) / 60_000));
   if (kind === "session") {
     const h = Math.floor(totalMin / 60);
     const m = totalMin % 60;
-    return h > 0 ? `还剩 ${h}h ${m}m` : `还剩 ${m}m`;
+    return h > 0 ? `⏳ ${h}h ${m}m` : `⏳ ${m}m`;
   }
   const totalH = Math.floor(totalMin / 60);
   const d = Math.floor(totalH / 24);
   const h = totalH % 24;
-  return d > 0 ? `还剩 ${d}d ${h}h` : `还剩 ${h}h`;
+  return d > 0 ? `⏳ ${d}d ${h}h` : `⏳ ${h}h`;
 }
 
 /** Build a usage line "5h 31% · 还剩 2h 15m", or just "5h 31%" when the reset

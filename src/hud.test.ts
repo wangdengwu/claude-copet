@@ -81,11 +81,11 @@ const usagePayload = {
   weekReset: "Jun 30 at 3pm (Asia/Shanghai)",        // 4d6h after NOW
 };
 
-test("usage shows time remaining: 5h as h+m, 7d as d+h", () => {
+test("usage shows time remaining with a ⏳ symbol: 5h as h+m, 7d as d+h", () => {
   const v = formatHud({ ...base, model: "x", contextPercent: 10, usage: usagePayload }, NOW);
   expect(v.usage).not.toBeNull();
-  expect(v.usage!.fiveHour.text).toBe("5h 31% · 还剩 14h 59m");
-  expect(v.usage!.sevenDay.text).toBe("7d 77% · 还剩 4d 6h");
+  expect(v.usage!.fiveHour.text).toBe("5h 31% · ⏳ 14h 59m");
+  expect(v.usage!.sevenDay.text).toBe("7d 77% · ⏳ 4d 6h");
 });
 
 test("usage band follows the same thresholds as context (amber ≥70, red ≥90)", () => {
@@ -114,12 +114,12 @@ test("an unparseable reset phrase drops the countdown suffix (shows just the per
   expect(v.usage!.sevenDay.text).toBe("7d 12%");
 });
 
-test("a reset already in the past shows 已重置 (not a negative countdown)", () => {
+test("a reset already in the past clamps to zero (not a negative countdown)", () => {
   const v = formatHud({
     ...base, model: "x", contextPercent: 10,
     usage: { sessionPercent: 31, sessionReset: "Jun 26 at 8am", weekPercent: 77, weekReset: "Jun 30 at 3pm" },
   }, NOW);
-  expect(v.usage!.fiveHour.text).toBe("5h 31% · 已重置");
+  expect(v.usage!.fiveHour.text).toBe("5h 31% · ⏳ 0m");
 });
 
 test("usage percent is rounded for display", () => {
@@ -127,7 +127,7 @@ test("usage percent is rounded for display", () => {
     ...base, model: "x", contextPercent: 10,
     usage: { ...usagePayload, sessionPercent: 30.6 as unknown as number },
   }, NOW);
-  expect(v.usage!.fiveHour.text).toBe("5h 31% · 还剩 14h 59m");
+  expect(v.usage!.fiveHour.text).toBe("5h 31% · ⏳ 14h 59m");
 });
 
 // ── parseResetToMs / formatRemaining (pure helpers) ──
@@ -154,11 +154,12 @@ test("parseResetToMs returns null for a phrase with no parseable date/time", () 
   expect(parseResetToMs("", NOW)).toBeNull();
 });
 
-test("formatRemaining: session=h+m, week=d+h, sub-unit drops the bigger unit, past=已重置", () => {
+test("formatRemaining: ⏳ prefix, session=h+m, week=d+h, drops a zero high unit, past clamps to 0", () => {
   const min = 60_000, hr = 60 * min, day = 24 * hr;
-  expect(formatRemaining(NOW + 2 * hr + 15 * min, NOW, "session")).toBe("还剩 2h 15m");
-  expect(formatRemaining(NOW + 45 * min, NOW, "session")).toBe("还剩 45m");
-  expect(formatRemaining(NOW + 3 * day + 8 * hr, NOW, "week")).toBe("还剩 3d 8h");
-  expect(formatRemaining(NOW + 8 * hr, NOW, "week")).toBe("还剩 8h");
-  expect(formatRemaining(NOW - min, NOW, "session")).toBe("已重置");
+  expect(formatRemaining(NOW + 2 * hr + 15 * min, NOW, "session")).toBe("⏳ 2h 15m");
+  expect(formatRemaining(NOW + 45 * min, NOW, "session")).toBe("⏳ 45m");
+  expect(formatRemaining(NOW + 3 * day + 8 * hr, NOW, "week")).toBe("⏳ 3d 8h");
+  expect(formatRemaining(NOW + 8 * hr, NOW, "week")).toBe("⏳ 8h");
+  expect(formatRemaining(NOW - min, NOW, "session")).toBe("⏳ 0m");
+  expect(formatRemaining(NOW - min, NOW, "week")).toBe("⏳ 0h");
 });

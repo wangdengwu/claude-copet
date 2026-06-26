@@ -61,10 +61,13 @@ and emits a `HudSnapshot` to the frontend.
   flicker to blank), same "only overwrite on success" discipline the `/context`
   path already uses.
 - The two windows render as compact text showing TIME REMAINING until reset
-  (not the absolute clock time / date): the 5h window as hours+minutes, the 7d
-  window as days+hours — e.g. `5h 31% · 还剩 2h 15m` / `7d 77% · 还剩 3d 8h`.
-  The countdown ticks down live. When the reset phrase can't be parsed into an
-  instant, the `· 还剩 …` suffix is dropped (show just `5h 31%`).
+  (not the absolute clock time / date), prefixed with a ⏳ countdown symbol (no
+  words): the 5h window as hours+minutes, the 7d window as days+hours — e.g.
+  `5h 31% · ⏳ 2h 15m` / `7d 77% · ⏳ 3d 8h`. The countdown ticks down live. A
+  just-reset window clamps to `⏳ 0m` / `⏳ 0h`. When the reset phrase can't be
+  parsed into an instant, the `· ⏳ …` suffix is dropped (show just `5h 31%`).
+- Settings open from the right-click context menu's "Settings" item — there is
+  no separate gear button on the HUD.
 - **Non-Claude / non-subscription sessions degrade gracefully.** When the
   current setup has no such limits (e.g. DeepSeek or any third-party model, or
   an API-key / non-subscription configuration), `/usage` does NOT print the

@@ -117,20 +117,11 @@ export function mountSettingsPanel(container: HTMLElement): void {
     await invokeOrNull("set_settings", { s: updated });
   });
 
-  // Toggle visibility via a small gear button.
-  const toggle = document.createElement("button");
-  toggle.textContent = "gear";
-  toggle.style.cssText = [
-    "position:fixed;bottom:8px;right:8px;background:rgba(0,0,0,0.5);",
-    "color:#eee;font-family:monospace;font-size:10px;border:none;",
-    "padding:3px 6px;border-radius:3px;cursor:pointer;z-index:101;",
-  ].join("");
-  container.appendChild(toggle);
-
+  // The panel is opened from the right-click context menu's "Settings" item
+  // (via openSettings → openPanel); there is no separate gear button.
   function openPanel(): void {
     if (panel.style.display === "none") {
       panel.style.display = "block";
-      toggle.style.display = "none";
       refreshHookStatus();
       refreshUsageInterval();
     }
@@ -138,13 +129,11 @@ export function mountSettingsPanel(container: HTMLElement): void {
 
   function closePanel(): void {
     panel.style.display = "none";
-    toggle.style.display = "block";
   }
 
   // Wire the module-level export so the context menu can call openSettings().
   _openSettingsFn = openPanel;
 
-  toggle.addEventListener("click", openPanel);
   panel.querySelector<HTMLButtonElement>("#s-close")!.addEventListener("click", closePanel);
 
   // Close on Escape.
@@ -157,11 +146,7 @@ export function mountSettingsPanel(container: HTMLElement): void {
   // the press that opens the panel never reaches this handler — only a genuine
   // outside press closes it.
   document.addEventListener("mousedown", (e) => {
-    if (
-      panel.style.display !== "none" &&
-      !panel.contains(e.target as Node) &&
-      e.target !== toggle
-    ) {
+    if (panel.style.display !== "none" && !panel.contains(e.target as Node)) {
       closePanel();
     }
   });
