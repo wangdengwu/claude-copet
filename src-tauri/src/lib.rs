@@ -8,6 +8,7 @@ pub mod mood;
 pub mod session;
 pub mod settings;
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -107,13 +108,21 @@ const TRANSCRIPT_TAIL_BYTES: u64 = 2 * 1024 * 1024;
 /// `$HOME/.claude-copet/events.jsonl` (`%USERPROFILE%` on Windows).
 fn event_log_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
-    Some(PathBuf::from(home).join(".claude-copet").join("events.jsonl"))
+    Some(
+        PathBuf::from(home)
+            .join(".claude-copet")
+            .join("events.jsonl"),
+    )
 }
 
 /// The persisted settings location: `$HOME/.claude-copet/settings.json`.
 fn settings_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
-    Some(PathBuf::from(home).join(".claude-copet").join("settings.json"))
+    Some(
+        PathBuf::from(home)
+            .join(".claude-copet")
+            .join("settings.json"),
+    )
 }
 
 // ─────────────────────── hook-install helpers ────────────────────────────────
@@ -163,10 +172,10 @@ fn announce(app: &tauri::AppHandle, mood: events::Mood) {
 /// and reset its decay timer; quiet polls are pure time ticks that let the mood
 /// decay. Mood is ephemeral — nothing is persisted.
 fn watch_event_log(app: tauri::AppHandle) {
-        let Some(log_path) = event_log_path() else {
-                return;
+    let Some(log_path) = event_log_path() else {
+        return;
     };
-    
+
     // Mood always starts at the current end of the log so pre-existing events
     // don't replay into the ephemeral mood engine.
     let mut mood_offset = fs::metadata(&log_path)
@@ -192,9 +201,13 @@ fn watch_event_log(app: tauri::AppHandle) {
     let mut last_tool: Option<String> = None;
     let mut attention = false;
     let mut last_hud = HudSnapshot::default();
-    // Context-client state: L1 cache from /context, in-flight guard, and
-    // a flag that triggers a fetch on startup and after model changes.
-    let cached_ctx: Arc<Mutex<Option<session::CachedContext>>> = Arc::new(Mutex::new(None));
+    // Context-client state: a PER-SESSION L1 cache from /context (keyed by
+    // session id), an in-flight guard, and a pending-fetch flag. The map is the
+    // fix for the "every switch re-flashes 15%→3%" bug: each session keeps its
+    // own resolved window across active-session switches, so returning to a
+    // session reuses its cached window instead of re-running /context.
+    let cached_ctx: Arc<Mutex<HashMap<String, session::CachedContext>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     let context_in_flight: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
     // Pending /context request: (session_id, cwd). When set and not in-flight,
     // the watcher spawns /context for this session on the next tick. Kept as
@@ -217,8 +230,7 @@ fn watch_event_log(app: tauri::AppHandle) {
             if bytes.len() > mood_offset {
                 let (evs, new_offset) = events::parse(&bytes, mood_offset);
                 mood_offset = new_offset;
-                if !evs.is_empty() {
-                                    }
+                if !evs.is_empty() {}
                 new_events = evs;
             }
         }
@@ -257,16 +269,32 @@ fn watch_event_log(app: tauri::AppHandle) {
                 }
             }
 
-            // A new session owns the card: drop the previous session's cached
-            // model / context % / tool / attention so we don't show stale figures
-            // from a different session.
+            // A new session owns the card: drop the previous session's derived
+            // DISPLAY state (model / context % / tool / attention) and the
+            // transcript snapshot (last_usage / last_seen_model) so the per-tick
+            // recompute below can't keep showing the previous session's figures.
+            // We do NOT clear the /context cache map — each session keeps its own
+            // entry — and we only schedule a /context fetch when this session has
+            // no cached window yet (model-change re-fetch is handled separately).
             if active_session != prev_session {
-                                *cached_ctx.lock().unwrap() = None;
                 cached_model = None;
                 cached_context = None;
+                last_usage = None;
+                last_seen_model = None;
                 last_tool = None;
                 attention = false;
-                pending_context_fetch = active_session.as_ref().zip(active_cwd.as_ref()).map(|(s,c)| (s.clone(), c.clone()));
+                let need_fetch = active_session
+                    .as_deref()
+                    .map(|sid| !cached_ctx.lock().unwrap().contains_key(sid))
+                    .unwrap_or(false);
+                pending_context_fetch = if need_fetch {
+                    active_session
+                        .as_ref()
+                        .zip(active_cwd.as_ref())
+                        .map(|(s, c)| (s.clone(), c.clone()))
+                } else {
+                    None
+                };
             }
 
             // Refresh model + context % from the active session's transcript tail
@@ -279,6 +307,11 @@ fn watch_event_log(app: tauri::AppHandle) {
                 .and_then(|p| read_tail(p, TRANSCRIPT_TAIL_BYTES))
                 .and_then(|tail| session::latest_usage_and_model(&tail));
             if let Some(um) = read_result {
+                // The session that owns the card right now. Every cache lookup
+                // below is keyed on this session id, so one session's /context
+                // result can never leak its window/model onto another's card.
+                let active_sid = active_session.as_deref().unwrap_or("");
+
                 // Snapshot for per-tick recomputation.
                 last_usage = Some(um.usage.clone());
                 last_seen_model = Some(um.model.clone());
@@ -286,21 +319,23 @@ fn watch_event_log(app: tauri::AppHandle) {
                 // Update last_transcript_model FIRST — before the model_changed
                 // check — so the first read after a /context fetch doesn't
                 // falsely detect a mismatch (the thread leaves it empty).
-                if let Some(ref mut ctx) = *cached_ctx.lock().unwrap() {
+                if let Some(ctx) = cached_ctx.lock().unwrap().get_mut(active_sid) {
                     if ctx.last_transcript_model.is_empty() {
                         ctx.last_transcript_model = um.model.clone();
                     }
                 }
 
                 // Model mismatch detection: if the transcript model differs from
-                // the one last seen at /context fetch time, re-fetch context.
+                // the one last seen at this session's /context fetch time,
+                // re-fetch context for this session.
                 let model_different = {
                     let mut guard = cached_ctx.lock().unwrap();
-                    match &mut *guard {
+                    match guard.get_mut(active_sid) {
                         Some(ctx) => {
-                            let diff = session::model_changed(Some(&ctx.last_transcript_model), &um.model);
+                            let diff =
+                                session::model_changed(Some(&ctx.last_transcript_model), &um.model);
                             if diff {
-                                                                // Update baseline so we don't re-fire on every tick.
+                                // Update baseline so we don't re-fire on every tick.
                                 ctx.last_transcript_model = um.model.clone();
                             }
                             diff
@@ -309,28 +344,27 @@ fn watch_event_log(app: tauri::AppHandle) {
                     }
                 };
                 if model_different {
-                    pending_context_fetch = active_session.as_ref().zip(active_cwd.as_ref()).map(|(s,c)| (s.clone(), c.clone()));
+                    pending_context_fetch = active_session
+                        .as_ref()
+                        .zip(active_cwd.as_ref())
+                        .map(|(s, c)| (s.clone(), c.clone()));
                 }
 
-                // Compute window using L1 (cached /context) or L3 fallback.
+                // Compute window using L1 (this session's cached /context) or L3
+                // fallback.
                 let window = {
                     let guard = cached_ctx.lock().unwrap();
-                    let cached = guard.as_ref().map(|c| c.window_size);
-                    let w = session::resolve_window(
-                        cached,
-                        &um.usage,
-                        &um.model,
-                    );
-                    w
+                    let cached = guard.get(active_sid).map(|c| c.window_size);
+                    session::resolve_window(cached, &um.usage, &um.model)
                 };
-                cached_context =
-                    Some(session::context_percent(&um.usage, window));
+                cached_context = Some(session::context_percent(&um.usage, window));
 
-                // Prefer cached model alias, fall back to transcript model id.
+                // Prefer this session's cached model alias, fall back to the
+                // transcript model id.
                 cached_model = {
                     let guard = cached_ctx.lock().unwrap();
                     guard
-                        .as_ref()
+                        .get(active_sid)
                         .map(|c| session::model_friendly_name(&c.model_alias))
                         .or_else(|| Some(session::model_friendly_name(&um.model)))
                 };
@@ -362,21 +396,19 @@ fn watch_event_log(app: tauri::AppHandle) {
             }
         }
 
-        // ── Recompute context % on every tick
+        // ── Recompute context % on every tick (cache keyed by the active
+        //    session so a stale /context result can't skew the window/model).
         if let (Some(ref usage), Some(ref model)) = (&last_usage, &last_seen_model) {
+            let active_sid = active_session.as_deref().unwrap_or("");
             let window = {
                 let guard = cached_ctx.lock().unwrap();
-                session::resolve_window(
-                    guard.as_ref().map(|c| c.window_size),
-                    usage,
-                    model,
-                )
+                session::resolve_window(guard.get(active_sid).map(|c| c.window_size), usage, model)
             };
             cached_context = Some(session::context_percent(usage, window));
             cached_model = {
                 let guard = cached_ctx.lock().unwrap();
                 guard
-                    .as_ref()
+                    .get(active_sid)
                     .map(|c| session::model_friendly_name(&c.model_alias))
                     .or_else(|| Some(session::model_friendly_name(model)))
             };
@@ -396,7 +428,7 @@ fn watch_event_log(app: tauri::AppHandle) {
             needs_human: attention,
         };
         if hud != last_hud {
-                        let _ = app.emit("hud", &hud);
+            let _ = app.emit("hud", &hud);
             last_hud = hud;
         }
 
@@ -407,41 +439,42 @@ fn watch_event_log(app: tauri::AppHandle) {
                 pending_context_fetch = None; // consumed
                 if !sid.is_empty() {
                     *context_in_flight.lock().unwrap() = true;
-                                let ctx_clone = cached_ctx.clone();
-                let inflight_clone = context_in_flight.clone();
-                std::thread::spawn(move || {
-                    let client = ClaudeCliContextClient;
-                    let mut attempt = 0u8;
-                    let max_attempts: u8 = 2;
-                    while attempt < max_attempts {
-                        attempt += 1;
-                                                match client.fetch_context(&sid, &scwd) {
-                            Ok(stdout) => {
-                                match session::parse_context_output(&stdout) {
-                                    Some(info) => {
-                                                                                *ctx_clone.lock().unwrap() =
-                                            Some(session::CachedContext {
-                                                model_alias: info.model_alias,
-                                                window_size: info.window_size,
-                                                last_transcript_model: String::new(),
-                                            });
+                    let ctx_clone = cached_ctx.clone();
+                    let inflight_clone = context_in_flight.clone();
+                    std::thread::spawn(move || {
+                        let client = ClaudeCliContextClient;
+                        let mut attempt = 0u8;
+                        let max_attempts: u8 = 2;
+                        while attempt < max_attempts {
+                            attempt += 1;
+                            match client.fetch_context(&sid, &scwd) {
+                                Ok(stdout) => {
+                                    match session::parse_context_output(&stdout) {
+                                        Some(info) => {
+                                            ctx_clone.lock().unwrap().insert(
+                                                sid.clone(),
+                                                session::CachedContext {
+                                                    model_alias: info.model_alias,
+                                                    window_size: info.window_size,
+                                                    last_transcript_model: String::new(),
+                                                },
+                                            );
+                                        }
+                                        None => {}
                                     }
-                                    None => {
-                                                                            }
+                                    break;
                                 }
-                                break;
-                            }
-                            Err(()) => {
-                                                                if attempt < max_attempts {
-                                    std::thread::sleep(Duration::from_secs(2));
+                                Err(()) => {
+                                    if attempt < max_attempts {
+                                        std::thread::sleep(Duration::from_secs(2));
+                                    }
                                 }
                             }
                         }
-                    }
-                    *inflight_clone.lock().unwrap() = false;
-                });
+                        *inflight_clone.lock().unwrap() = false;
+                    });
+                }
             }
-        }
         }
     }
 }
@@ -561,8 +594,13 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            get_settings, set_settings, pet_clicked, quit_app,
-            install_hooks, uninstall_hooks, hooks_status
+            get_settings,
+            set_settings,
+            pet_clicked,
+            quit_app,
+            install_hooks,
+            uninstall_hooks,
+            hooks_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

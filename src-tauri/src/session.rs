@@ -17,8 +17,10 @@ pub struct ContextInfo {
 }
 
 /// Cached context information from `/context` command output. Populated by the
-/// watcher via `ContextClient`; the watcher reads these fields to compute
-/// context percent and display the model alias.
+/// watcher via `ContextClient` and keyed by session id in a per-session map, so
+/// each session keeps its own resolved window across active-session switches and
+/// is only re-fetched when its transcript model changes. The watcher reads these
+/// fields to compute context percent and display the model alias.
 pub struct CachedContext {
     /// The model alias as reported by the context command (e.g. "deepseek-v4-pro[1m]").
     pub model_alias: String,
@@ -152,9 +154,8 @@ pub fn resolve_window(cached_window: Option<u64>, usage: &Usage, model_id: &str)
         return w;
     }
     let window = context_window(model_id);
-    let usage_sum = usage.input_tokens
-        + usage.cache_read_input_tokens
-        + usage.cache_creation_input_tokens;
+    let usage_sum =
+        usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens;
     if usage_sum > window && window < 1_000_000 {
         1_000_000
     } else {
@@ -168,9 +169,8 @@ pub fn resolve_window(cached_window: Option<u64>, usage: &Usage, model_id: &str)
 /// The caller provides the window size explicitly (e.g. from `context_window`
 /// or from a `/context` parse).
 pub fn context_percent(usage: &Usage, window_size: u64) -> f64 {
-    let used = usage.input_tokens
-        + usage.cache_read_input_tokens
-        + usage.cache_creation_input_tokens;
+    let used =
+        usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens;
     if window_size == 0 {
         return 0.0;
     }
@@ -310,12 +310,10 @@ pub fn parse_context_output(stdout: &str) -> Option<ContextInfo> {
     }
 
     match (model_alias, window_size) {
-        (Some(model_alias), Some(window_size)) if window_size > 0 => {
-            Some(ContextInfo {
-                model_alias,
-                window_size,
-            })
-        }
+        (Some(model_alias), Some(window_size)) if window_size > 0 => Some(ContextInfo {
+            model_alias,
+            window_size,
+        }),
         _ => None,
     }
 }

@@ -3,8 +3,8 @@
 //! and refactors `context_percent` to accept an explicit window_size.
 
 use claude_copet_lib::session::{
-    context_percent, context_window, latest_usage_and_model, model_changed,
-    model_friendly_name, parse_context_output, resolve_window, CachedContext, Usage,
+    context_percent, context_window, latest_usage_and_model, model_changed, model_friendly_name,
+    parse_context_output, resolve_window, CachedContext, Usage,
 };
 
 fn assistant_line(model: &str, input: u64, cache_read: u64, cache_create: u64) -> String {
@@ -23,7 +23,10 @@ fn picks_the_last_assistant_message_with_usage() {
         assistant_line("claude-sonnet-4-6", 100, 200, 300),
     );
     let got = latest_usage_and_model(tail.as_bytes()).expect("should find usage");
-    assert_eq!(got.model, "claude-sonnet-4-6", "must pick the LAST assistant message");
+    assert_eq!(
+        got.model, "claude-sonnet-4-6",
+        "must pick the LAST assistant message"
+    );
     assert_eq!(got.usage.input_tokens, 100);
     assert_eq!(got.usage.cache_read_input_tokens, 200);
     assert_eq!(got.usage.cache_creation_input_tokens, 300);
@@ -59,7 +62,11 @@ fn window_defaults_and_1m_variants() {
     assert_eq!(context_window("claude-sonnet-4-6"), 200_000);
     assert_eq!(context_window("claude-opus-4-8[1m]"), 1_000_000);
     assert_eq!(context_window("claude-sonnet-4-6[1m]"), 1_000_000);
-    assert_eq!(context_window("something-unknown"), 200_000, "unknown falls back to default");
+    assert_eq!(
+        context_window("something-unknown"),
+        200_000,
+        "unknown falls back to default"
+    );
 }
 
 // ─────────────────────────── context_percent (refactored) ────────────────────
@@ -129,14 +136,20 @@ fn friendly_names_for_known_models() {
 
 #[test]
 fn friendly_name_ignores_dated_and_1m_suffixes() {
-    assert_eq!(model_friendly_name("claude-haiku-4-5-20251001"), "Haiku 4.5");
+    assert_eq!(
+        model_friendly_name("claude-haiku-4-5-20251001"),
+        "Haiku 4.5"
+    );
     assert_eq!(model_friendly_name("claude-opus-4-8[1m]"), "Opus 4.8");
 }
 
 #[test]
 fn unknown_model_degrades_to_raw_id() {
     assert_eq!(model_friendly_name("gpt-4o"), "gpt-4o");
-    assert_eq!(model_friendly_name("claude-3-5-sonnet-20241022"), "claude-3-5-sonnet-20241022");
+    assert_eq!(
+        model_friendly_name("claude-3-5-sonnet-20241022"),
+        "claude-3-5-sonnet-20241022"
+    );
 }
 
 // ─────────────────────────── parse_context_output ────────────────────────────
