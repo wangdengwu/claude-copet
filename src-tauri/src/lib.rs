@@ -74,11 +74,27 @@ impl session::ContextClient for ClaudeCliContextClient {
             .current_dir(cwd)
             .output()
             .map_err(|_| ())?;
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let _ = std::fs::write(
+            dirs_next().join(".claude-copet").join("context-debug.log"),
+            format!(
+                "sid={session_id} cwd={cwd} ok={} stdout={stdout} stderr={stderr}\n",
+                output.status.success()
+            ),
+        );
         if !output.status.success() {
             return Err(());
         }
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        Ok(stdout)
     }
+}
+
+fn dirs_next() -> std::path::PathBuf {
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .unwrap_or_default();
+    std::path::PathBuf::from(home)
 }
 
 /// How much of a transcript tail we read to find the latest assistant usage.
@@ -169,6 +185,10 @@ fn watch_event_log(app: tauri::AppHandle) {
     // transcript only grows on events) + the running activity/attention state.
     let mut cached_model: Option<String> = None;
     let mut cached_context: Option<f64> = None;
+    // Snapshot of the last transcript read, so we can recompute context %
+    // on every tick when the L1 cache is updated by the background /context thread.
+    let mut last_usage: Option<session::Usage> = None;
+    let mut last_seen_model: Option<String> = None;
     let mut last_tool: Option<String> = None;
     let mut attention = false;
     let mut last_hud = HudSnapshot::default();
@@ -176,13 +196,15 @@ fn watch_event_log(app: tauri::AppHandle) {
     // a flag that triggers a fetch on startup and after model changes.
     let cached_ctx: Arc<Mutex<Option<session::CachedContext>>> = Arc::new(Mutex::new(None));
     let context_in_flight: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
-    let mut context_needs_refresh = true;
+    // Pending /context request: (session_id, cwd). When set and not in-flight,
+    // the watcher spawns /context for this session on the next tick. Kept as
+    // Option so rapid switches overwrite; NOT consumed with .take() so it
+    // survives when in_flight blocks the spawn.
+    let mut pending_context_fetch: Option<(String, String)> = None;
     let _ = app.emit("hud", &last_hud);
 
-    let mut tick_count: u64 = 0;
     loop {
         std::thread::sleep(Duration::from_millis(250));
-        tick_count += 1;
         let now = Instant::now();
         let delta = now.duration_since(last);
         last = now;
@@ -244,7 +266,7 @@ fn watch_event_log(app: tauri::AppHandle) {
                 cached_context = None;
                 last_tool = None;
                 attention = false;
-                context_needs_refresh = true;
+                pending_context_fetch = active_session.as_ref().zip(active_cwd.as_ref()).map(|(s,c)| (s.clone(), c.clone()));
             }
 
             // Refresh model + context % from the active session's transcript tail
@@ -256,7 +278,11 @@ fn watch_event_log(app: tauri::AppHandle) {
                 .filter(|p| !p.is_empty())
                 .and_then(|p| read_tail(p, TRANSCRIPT_TAIL_BYTES))
                 .and_then(|tail| session::latest_usage_and_model(&tail));
-                        if let Some(um) = read_result {
+            if let Some(um) = read_result {
+                // Snapshot for per-tick recomputation.
+                last_usage = Some(um.usage.clone());
+                last_seen_model = Some(um.model.clone());
+
                 // Update last_transcript_model FIRST — before the model_changed
                 // check — so the first read after a /context fetch doesn't
                 // falsely detect a mismatch (the thread leaves it empty).
@@ -283,7 +309,7 @@ fn watch_event_log(app: tauri::AppHandle) {
                     }
                 };
                 if model_different {
-                    context_needs_refresh = true;
+                    pending_context_fetch = active_session.as_ref().zip(active_cwd.as_ref()).map(|(s,c)| (s.clone(), c.clone()));
                 }
 
                 // Compute window using L1 (cached /context) or L3 fallback.
@@ -336,8 +362,25 @@ fn watch_event_log(app: tauri::AppHandle) {
             }
         }
 
-        if tick_count % 40 == 0 {
-                    }
+        // ── Recompute context % on every tick
+        if let (Some(ref usage), Some(ref model)) = (&last_usage, &last_seen_model) {
+            let window = {
+                let guard = cached_ctx.lock().unwrap();
+                session::resolve_window(
+                    guard.as_ref().map(|c| c.window_size),
+                    usage,
+                    model,
+                )
+            };
+            cached_context = Some(session::context_percent(usage, window));
+            cached_model = {
+                let guard = cached_ctx.lock().unwrap();
+                guard
+                    .as_ref()
+                    .map(|c| session::model_friendly_name(&c.model_alias))
+                    .or_else(|| Some(session::model_friendly_name(model)))
+            };
+        }
 
         // ── HUD: rebuild every tick (so activity decays to "Idle" and the
         //    needs-human alert clears even on quiet polls) and emit on change. ──
@@ -358,12 +401,12 @@ fn watch_event_log(app: tauri::AppHandle) {
         }
 
         // ── L1 context: spawn a one-shot /context fetch when needed ──
-        if context_needs_refresh && !*context_in_flight.lock().unwrap() {
-            let sid = active_session.clone().unwrap_or_default();
-            let scwd = active_cwd.clone().unwrap_or_default();
-            if !sid.is_empty() {
-                *context_in_flight.lock().unwrap() = true;
-                context_needs_refresh = false;
+        if let Some(ref pending) = pending_context_fetch {
+            if !*context_in_flight.lock().unwrap() {
+                let (sid, scwd) = pending.clone();
+                pending_context_fetch = None; // consumed
+                if !sid.is_empty() {
+                    *context_in_flight.lock().unwrap() = true;
                                 let ctx_clone = cached_ctx.clone();
                 let inflight_clone = context_in_flight.clone();
                 std::thread::spawn(move || {
@@ -395,9 +438,10 @@ fn watch_event_log(app: tauri::AppHandle) {
                             }
                         }
                     }
-                                        *inflight_clone.lock().unwrap() = false;
+                    *inflight_clone.lock().unwrap() = false;
                 });
             }
+        }
         }
     }
 }
