@@ -36,7 +36,11 @@ export function mountSettingsPanel(container: HTMLElement): void {
   ].join("");
 
   panel.innerHTML = `
-    <div style="margin-bottom:6px;font-weight:bold">Settings</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-weight:bold">Settings</span>
+      <button id="s-close" title="Close (Esc)"
+        style="background:none;border:none;color:#eee;font-family:monospace;font-size:13px;line-height:1;cursor:pointer;padding:0 2px">✕</button>
+    </div>
     <label style="display:flex;align-items:center;gap:4px;margin-bottom:4px">
       <input type="checkbox" id="s-llm-enabled"> Enable LLM voice
     </label>
@@ -115,10 +119,21 @@ export function mountSettingsPanel(container: HTMLElement): void {
     }
   }
 
+  function closePanel(): void {
+    panel.style.display = "none";
+    toggle.style.display = "block";
+  }
+
   // Wire the module-level export so the context menu can call openSettings().
   _openSettingsFn = openPanel;
 
   toggle.addEventListener("click", openPanel);
+  panel.querySelector<HTMLButtonElement>("#s-close")!.addEventListener("click", closePanel);
+
+  // Close on Escape.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && panel.style.display !== "none") closePanel();
+  });
 
   // Close when clicking outside the panel.
   document.addEventListener("click", (e) => {
@@ -127,8 +142,7 @@ export function mountSettingsPanel(container: HTMLElement): void {
       !panel.contains(e.target as Node) &&
       e.target !== toggle
     ) {
-      panel.style.display = "none";
-      toggle.style.display = "block";
+      closePanel();
     }
   });
 }
