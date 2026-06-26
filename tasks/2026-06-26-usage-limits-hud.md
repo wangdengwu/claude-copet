@@ -35,9 +35,10 @@ Scope, end to end:
    interval (default 5 min), plus an on-demand manual refresh that is
    rate-limited (rapid clicks do not re-run the CLI).
 4. **Settings**: a persisted refresh-interval choice — 5 / 10 / 15 minutes.
-5. **Frontend**: two compact lines under the context % — `5h 31% · 11:59pm`
-   and `7d 77% · Jun 30` — a manual refresh button next to them, and an
-   interval dropdown (5/10/15) in the settings UI.
+5. **Frontend**: a single usage row under the context % with the two windows
+   side by side (`5h 31% ⏳ 2h 15m`  `7d 77% ⏳ 3d 8h`), separated by a gap; a
+   "Refresh usage" item in the right-click context menu (no inline button); and
+   an interval dropdown (5/10/15) in the settings UI.
 
 ## Current behavior
 
@@ -53,7 +54,8 @@ and emits a `HudSnapshot` to the frontend.
   windows' percentages and reset times within a few seconds.
 - Thereafter usage is refreshed automatically every N minutes, where N is the
   persisted setting (default 5; selectable 5 / 10 / 15).
-- A refresh button on the card triggers an immediate re-fetch, but is throttled:
+- A "Refresh usage" item in the right-click context menu triggers an immediate
+  re-fetch (no small inline button — easier to click), but is throttled:
   if an actual fetch happened within the last throttle window, the click is a
   no-op (no CLI invocation). The throttle is enforced server-side so UI cannot
   bypass it.

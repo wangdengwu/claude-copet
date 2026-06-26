@@ -63,36 +63,18 @@ const activityRow = document.createElement("div");
 activityRow.className = "hud-activity";
 activityRow.textContent = "Idle";
 
-// Usage block: two compact lines (5h / 7d) + a refresh button.
+// Usage block: a single row with the two windows (5h / 7d) side by side,
+// separated by a generous gap. Within each window percent + countdown are one
+// unit (no separator). Refresh is in the right-click menu, not an inline button.
 const usageBlock = document.createElement("div");
 usageBlock.className = "hud-usage";
 usageBlock.style.display = "none";
 
-// The two windows stack as separate rows so 5h and 7d read as distinct lines;
-// within each, percent and countdown are one unit (no separator).
-const usageLines = document.createElement("div");
-usageLines.className = "hud-usage-lines";
 const fiveHourEl = document.createElement("span");
 fiveHourEl.className = "hud-usage-line";
 const sevenDayEl = document.createElement("span");
 sevenDayEl.className = "hud-usage-line";
-usageLines.append(fiveHourEl, sevenDayEl);
-
-const refreshBtn = document.createElement("button");
-refreshBtn.className = "hud-usage-refresh";
-refreshBtn.textContent = "↻";
-refreshBtn.title = "Refresh usage";
-
-// Tiny debounce: ignore clicks within 1 s (real throttle is enforced in Rust).
-let lastRefreshAt = 0;
-refreshBtn.addEventListener("click", async () => {
-  const now = Date.now();
-  if (now - lastRefreshAt < 1000) return;
-  lastRefreshAt = now;
-  await invokeOrNull("refresh_usage");
-});
-
-usageBlock.append(usageLines, refreshBtn);
+usageBlock.append(fiveHourEl, sevenDayEl);
 
 hudInfo.append(topRow, barRow, activityRow, usageBlock);
 
@@ -232,6 +214,11 @@ function makeItem(label: string, onClick: () => void): HTMLDivElement {
   return item;
 }
 
+const refreshUsageItem = makeItem("Refresh usage", () => {
+  // The 30s throttle is enforced in Rust; the menu just requests a re-fetch.
+  void invokeOrNull("refresh_usage");
+});
+
 const settingsItem = makeItem("Settings", () => openSettings());
 
 const quitItem = makeItem("Quit", async () => {
@@ -244,6 +231,7 @@ const quitItem = makeItem("Quit", async () => {
   }
 });
 
+ctxMenu.appendChild(refreshUsageItem);
 ctxMenu.appendChild(settingsItem);
 ctxMenu.appendChild(quitItem);
 document.body.appendChild(ctxMenu);

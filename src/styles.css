@@ -146,51 +146,27 @@ body {
 }
 
 /* Usage limits block: two compact lines (5h / 7d) + refresh button. */
+/* One row, the two windows side by side with a generous gap so 5h and 7d read
+   as distinct groups. Refresh lives in the right-click menu — no inline button. */
 .hud-usage {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: baseline;
+  gap: 14px;
   font-size: 10px;
   line-height: 1.3;
   color: #9aa0aa;
+  white-space: nowrap;
   overflow: hidden;
 }
 
-/* The two windows stack vertically — 5h on top, 7d below — so they read as
-   distinct lines. The refresh button sits to their right. */
-.hud-usage-lines {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
 .hud-usage-line {
-  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 /* Band colours for the usage lines, mirroring the context-bar palette. */
 .hud-usage-line[data-band="green"] { color: #4caf6a; }
 .hud-usage-line[data-band="amber"] { color: #e3a23c; }
 .hud-usage-line[data-band="red"]   { color: #e3553c; }
-
-.hud-usage-refresh {
-  margin-left: auto;
-  flex: 0 0 auto;
-  background: none;
-  border: none;
-  color: #9aa0aa;
-  font-family: inherit;
-  font-size: 11px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 2px;
-  opacity: 0.6;
-  transition: opacity 150ms ease;
-}
-
-.hud-usage-refresh:hover {
-  opacity: 1;
-}
 
 /* Pixel speech bubble, centered above the sprite. Fades via opacity; the data-show
    attribute is toggled from JS. pointer-events:none so it never steals clicks. */
