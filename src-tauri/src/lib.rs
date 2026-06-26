@@ -63,7 +63,7 @@ fn read_tail(path: &str, max_bytes: u64) -> Option<Vec<u8>> {
 struct ClaudeCliContextClient;
 
 impl session::ContextClient for ClaudeCliContextClient {
-    fn fetch_context(&self, session_id: &str) -> Result<String, ()> {
+    fn fetch_context(&self, session_id: &str, cwd: &str) -> Result<String, ()> {
         let output = std::process::Command::new("claude")
             .arg("-p")
             .arg("--resume")
@@ -71,6 +71,7 @@ impl session::ContextClient for ClaudeCliContextClient {
             .arg("--output-format")
             .arg("text")
             .arg("/context")
+            .current_dir(cwd)
             .output()
             .map_err(|_| ())?;
         if !output.status.success() {
@@ -359,6 +360,7 @@ fn watch_event_log(app: tauri::AppHandle) {
         // ── L1 context: spawn a one-shot /context fetch when needed ──
         if context_needs_refresh && !*context_in_flight.lock().unwrap() {
             let sid = active_session.clone().unwrap_or_default();
+            let scwd = active_cwd.clone().unwrap_or_default();
             if !sid.is_empty() {
                 *context_in_flight.lock().unwrap() = true;
                 context_needs_refresh = false;
@@ -370,7 +372,7 @@ fn watch_event_log(app: tauri::AppHandle) {
                     let max_attempts: u8 = 2;
                     while attempt < max_attempts {
                         attempt += 1;
-                                                match client.fetch_context(&sid) {
+                                                match client.fetch_context(&sid, &scwd) {
                             Ok(stdout) => {
                                 match session::parse_context_output(&stdout) {
                                     Some(info) => {

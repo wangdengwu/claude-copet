@@ -1,11 +1,7 @@
-//! Slice 2: ContextClient trait + mock-based tests for the trigger logic
-//! (startup, session switch, model mismatch, in-flight guard, retry+L3).
-
 use std::sync::{Arc, Mutex};
 
 use claude_copet_lib::session::ContextClient;
 
-/// A mock client that returns canned stdout and counts calls.
 struct MockClient {
     canned: String,
     call_count: Arc<Mutex<u32>>,
@@ -24,7 +20,7 @@ impl MockClient {
 }
 
 impl ContextClient for MockClient {
-    fn fetch_context(&self, _session_id: &str) -> Result<String, ()> {
+    fn fetch_context(&self, _session_id: &str, _cwd: &str) -> Result<String, ()> {
         *self.call_count.lock().unwrap() += 1;
         if self.canned.is_empty() {
             Err(())
@@ -44,23 +40,22 @@ const REAL_OUTPUT: &str = "\
 #[test]
 fn client_returns_canned_stdout() {
     let client = MockClient::new(REAL_OUTPUT);
-    assert_eq!(client.fetch_context("s1").unwrap(), REAL_OUTPUT);
+    assert_eq!(client.fetch_context("s1", "/a").unwrap(), REAL_OUTPUT);
     assert_eq!(client.calls(), 1);
 }
 
 #[test]
 fn client_errors_on_empty_canned() {
     let client = MockClient::new("");
-    assert!(client.fetch_context("s1").is_err());
+    assert!(client.fetch_context("s1", ".").is_err());
     assert_eq!(client.calls(), 1);
 }
 
 #[test]
 fn client_passes_session_id_through() {
-    // Different session ids produce independent calls.
     let client = MockClient::new(REAL_OUTPUT);
-    client.fetch_context("sess-a").unwrap();
-    client.fetch_context("sess-b").unwrap();
+    client.fetch_context("sess-a", "/a").unwrap();
+    client.fetch_context("sess-b", "/b").unwrap();
     assert_eq!(client.calls(), 2);
 }
 
@@ -75,7 +70,7 @@ fn multiple_clients_share_call_count_via_arc() {
         canned: REAL_OUTPUT.into(),
         call_count: count.clone(),
     };
-    a.fetch_context("x").unwrap();
-    b.fetch_context("y").unwrap();
+    a.fetch_context("x", "/x").unwrap();
+    b.fetch_context("y", "/y").unwrap();
     assert_eq!(*count.lock().unwrap(), 2);
 }

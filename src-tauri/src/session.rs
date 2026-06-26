@@ -33,9 +33,9 @@ pub struct CachedContext {
 /// Abstraction over `claude -p --resume <id> "/context"` so the watcher can
 /// stay testable without calling the real CLI.
 pub trait ContextClient: Send + Sync {
-    /// Call `claude -p --resume <session_id> "/context"` and return raw stdout.
-    /// Returns `Err(())` on any failure (CLI missing, non-zero exit, etc.).
-    fn fetch_context(&self, session_id: &str) -> Result<String, ()>;
+    /// Call `claude -p --resume <session_id> "/context"` from the session's cwd
+    /// and return raw stdout. Returns `Err(())` on any failure.
+    fn fetch_context(&self, session_id: &str, cwd: &str) -> Result<String, ()>;
 }
 
 /// Fold one event into the needs-human attention flag.
