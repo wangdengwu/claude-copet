@@ -3,6 +3,7 @@
 
 pub mod events;
 pub mod growth;
+pub mod hooks_install;
 pub mod mood;
 pub mod settings;
 pub mod speaker;
@@ -11,6 +12,9 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 use speaker::{LlmClient as _, Speaker};
 use tauri::Emitter;
@@ -33,6 +37,44 @@ fn state_path() -> Option<PathBuf> {
 fn settings_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
     Some(PathBuf::from(home).join(".claude-copet").join("settings.json"))
+}
+
+// ─────────────────────── hook-install helpers ────────────────────────────────
+
+/// The hook script source, bundled at compile time.
+const HOOK_SCRIPT: &str = include_str!("../../hooks/claude-copet-hook.sh");
+
+/// Where we deploy the bundled hook script: `$HOME/.claude-copet/claude-copet-hook.sh`.
+fn hook_script_path() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    Some(
+        PathBuf::from(home)
+            .join(".claude-copet")
+            .join("claude-copet-hook.sh"),
+    )
+}
+
+/// Claude Code's settings file: `$HOME/.claude/settings.json`.
+fn claude_settings_path() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    Some(PathBuf::from(home).join(".claude").join("settings.json"))
+}
+
+/// Read `path` as a JSON Value, or return `{}` if the file is missing/corrupt.
+fn read_json_or_empty(path: &PathBuf) -> serde_json::Value {
+    fs::read(path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+
+/// Write `value` back as pretty-printed JSON, creating parent dirs as needed.
+fn write_json(path: &PathBuf, value: &serde_json::Value) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let bytes = serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?;
+    fs::write(path, bytes).map_err(|e| e.to_string())
 }
 
 /// "YYYY-MM-DD" today. Pure arithmetic on the Unix epoch — no chrono crate needed.
@@ -302,6 +344,73 @@ fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// Write the bundled hook script to `~/.claude-copet/claude-copet-hook.sh`
+/// (chmod 755 on Unix), then idempotently merge the six hook entries into
+/// `~/.claude/settings.json`. A `.bak` copy is written before any modification.
+#[tauri::command]
+fn install_hooks() -> Result<(), String> {
+    // 1. Write the hook script to ~/.claude-copet/
+    let script_path = hook_script_path().ok_or("cannot resolve HOME")?;
+    if let Some(parent) = script_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    fs::write(&script_path, HOOK_SCRIPT).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        let perms = fs::Permissions::from_mode(0o755);
+        fs::set_permissions(&script_path, perms).map_err(|e| e.to_string())?;
+    }
+
+    // 2. Read existing ~/.claude/settings.json (missing => {}).
+    let claude_path = claude_settings_path().ok_or("cannot resolve HOME")?;
+    let existing_file = claude_path.exists();
+    let current = read_json_or_empty(&claude_path);
+
+    // 3. Back up before modifying (only when the file already existed).
+    if existing_file {
+        let bak = claude_path.with_extension("json.bak");
+        let bak_bytes = serde_json::to_vec_pretty(&current).map_err(|e| e.to_string())?;
+        fs::write(&bak, bak_bytes).map_err(|e| e.to_string())?;
+    }
+
+    // 4. Merge and write back.
+    let script_str = script_path.to_string_lossy().into_owned();
+    let updated = hooks_install::merge_copet_hooks(current, &script_str);
+    write_json(&claude_path, &updated)
+}
+
+/// Remove only our hook entries from `~/.claude/settings.json`, leaving all
+/// other hooks intact. A `.bak` copy is written before any modification.
+#[tauri::command]
+fn uninstall_hooks() -> Result<(), String> {
+    let claude_path = claude_settings_path().ok_or("cannot resolve HOME")?;
+    if !claude_path.exists() {
+        return Ok(()); // nothing to remove
+    }
+    let current = read_json_or_empty(&claude_path);
+
+    // Back up before modifying.
+    let bak = claude_path.with_extension("json.bak");
+    let bak_bytes = serde_json::to_vec_pretty(&current).map_err(|e| e.to_string())?;
+    fs::write(&bak, bak_bytes).map_err(|e| e.to_string())?;
+
+    let updated = hooks_install::remove_copet_hooks(current);
+    write_json(&claude_path, &updated)
+}
+
+/// Return true iff all six copet hooks are present in `~/.claude/settings.json`.
+#[tauri::command]
+fn hooks_status() -> bool {
+    let Some(path) = claude_settings_path() else {
+        return false;
+    };
+    if !path.exists() {
+        return false;
+    }
+    let settings = read_json_or_empty(&path);
+    hooks_install::copet_hooks_installed(&settings)
+}
+
 // ─────────────────────────── entry point ─────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -318,7 +427,10 @@ pub fn run() {
             std::thread::spawn(move || watch_event_log(handle, cfg));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_settings, set_settings, pet_clicked, quit_app])
+        .invoke_handler(tauri::generate_handler![
+            get_settings, set_settings, pet_clicked, quit_app,
+            install_hooks, uninstall_hooks, hooks_status
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

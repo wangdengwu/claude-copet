@@ -41,8 +41,9 @@ export function mountSettingsPanel(container: HTMLElement): void {
       <button id="s-close" title="Close (Esc)"
         style="background:none;border:none;color:#eee;font-family:monospace;font-size:13px;line-height:1;cursor:pointer;padding:0 2px">✕</button>
     </div>
-    <label style="display:flex;align-items:center;gap:4px;margin-bottom:4px">
-      <input type="checkbox" id="s-llm-enabled"> Enable LLM voice
+    <label style="display:flex;align-items:center;gap:4px;margin-bottom:4px"
+      title="Use an LLM to write occasional special-moment lines (text in the speech bubble — not audio/voice). Default: your local Claude Code, no API key.">
+      <input type="checkbox" id="s-llm-enabled"> AI-written lines
     </label>
     <label style="display:block;margin-bottom:4px">
       Provider
@@ -62,6 +63,20 @@ export function mountSettingsPanel(container: HTMLElement): void {
       Save
     </button>
     <div id="s-status" style="margin-top:4px;font-size:10px;color:#aaa"></div>
+    <hr style="border:none;border-top:1px solid #444;margin:6px 0">
+    <div style="font-weight:bold;margin-bottom:4px">Claude Code</div>
+    <div id="s-hook-status" style="margin-bottom:4px;font-size:10px"></div>
+    <div style="display:flex;gap:4px;margin-bottom:4px">
+      <button id="s-connect"
+        style="flex:1;background:#444;color:#eee;border:1px solid #666;padding:3px;cursor:pointer">
+        Connect
+      </button>
+      <button id="s-disconnect"
+        style="flex:1;background:#444;color:#eee;border:1px solid #666;padding:3px;cursor:pointer">
+        Disconnect
+      </button>
+    </div>
+    <div id="s-hook-note" style="font-size:10px;color:#aaa"></div>
   `;
 
   container.appendChild(panel);
@@ -71,6 +86,44 @@ export function mountSettingsPanel(container: HTMLElement): void {
   const inpApiKey = panel.querySelector<HTMLInputElement>("#s-api-key")!;
   const btnSave = panel.querySelector<HTMLButtonElement>("#s-save")!;
   const statusEl = panel.querySelector<HTMLElement>("#s-status")!;
+  const hookStatusEl = panel.querySelector<HTMLElement>("#s-hook-status")!;
+  const btnConnect = panel.querySelector<HTMLButtonElement>("#s-connect")!;
+  const btnDisconnect = panel.querySelector<HTMLButtonElement>("#s-disconnect")!;
+  const hookNoteEl = panel.querySelector<HTMLElement>("#s-hook-note")!;
+
+  // Refresh the Claude Code connection badge.
+  async function refreshHookStatus(): Promise<void> {
+    const installed = await invokeOrNull<boolean>("hooks_status");
+    if (installed) {
+      hookStatusEl.textContent = "● Connected";
+      hookStatusEl.style.color = "#7ec";
+    } else {
+      hookStatusEl.textContent = "○ Not connected";
+      hookStatusEl.style.color = "#aaa";
+    }
+  }
+
+  btnConnect.addEventListener("click", async () => {
+    const result = await invokeOrNull<null>("install_hooks");
+    if (result !== null) {
+      hookNoteEl.textContent = "Restart Claude Code to apply.";
+    } else {
+      hookNoteEl.textContent = "Could not install hooks (offline mode).";
+    }
+    await refreshHookStatus();
+    setTimeout(() => { hookNoteEl.textContent = ""; }, 4000);
+  });
+
+  btnDisconnect.addEventListener("click", async () => {
+    const result = await invokeOrNull<null>("uninstall_hooks");
+    if (result !== null) {
+      hookNoteEl.textContent = "Restart Claude Code to apply.";
+    } else {
+      hookNoteEl.textContent = "Could not remove hooks (offline mode).";
+    }
+    await refreshHookStatus();
+    setTimeout(() => { hookNoteEl.textContent = ""; }, 4000);
+  });
 
   // Load current settings when the panel first becomes visible.
   async function loadSettings(): Promise<void> {
@@ -80,6 +133,7 @@ export function mountSettingsPanel(container: HTMLElement): void {
     inpProvider.value = s.provider;
     // Never pre-fill the key field — let the user re-enter.
     inpApiKey.placeholder = s.api_key ? "(key stored)" : "(not set)";
+    await refreshHookStatus();
   }
 
   btnSave.addEventListener("click", async () => {
