@@ -3,6 +3,12 @@
 claude-copet "feels" Claude Code by reading an append-only event log that Claude
 Code's hooks write to. Set the hooks up once and the pet reacts in real time.
 
+> **Easiest: one click.** Open the pet's Settings (right-click → Settings, or the
+> gear) → **Claude Code → Connect**. It installs the hooks into
+> `~/.claude/settings.json` for you (preserving any existing hooks, with a `.bak`
+> backup) and writes the hook script to `~/.claude-copet/`. Restart Claude Code to
+> apply. The rest of this doc is the manual equivalent / reference.
+
 ## The event log
 
 - **Path:** `~/.claude-copet/events.jsonl` (`%USERPROFILE%\.claude-copet\events.jsonl` on Windows).
