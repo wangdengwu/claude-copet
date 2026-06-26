@@ -362,7 +362,14 @@ fn hooks_status() -> bool {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // Persist only the window POSITION, never its size: the HUD card has a
+        // fixed size from tauri.conf.json, and persisting size would let a stale
+        // saved value (e.g. the old square 320×320) override the card dimensions.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(tauri_plugin_window_state::StateFlags::POSITION)
+                .build(),
+        )
         .setup(|app| {
             let handle = app.handle().clone();
             std::thread::spawn(move || watch_event_log(handle));
