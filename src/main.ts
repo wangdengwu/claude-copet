@@ -91,6 +91,28 @@ usageBlock.append(fiveHourEl, sevenDayEl, refreshBtn);
 
 hudInfo.append(topRow, barRow, activityRow, usageBlock);
 
+// Render the usage block from the latest snapshot, recomputing the remaining-time
+// countdown against the current clock. The last snapshot is retained so a timer
+// can re-render it between snapshots (the countdown ticks down live; /usage only
+// re-fetches every few minutes).
+let lastUsageState: HudState | null = null;
+function renderUsage(state: HudState): void {
+  const usage = formatHud(state).usage;
+  if (usage === null) {
+    usageBlock.style.display = "none";
+    return;
+  }
+  usageBlock.style.display = "";
+  fiveHourEl.textContent = usage.fiveHour.text;
+  fiveHourEl.dataset.band = usage.fiveHour.band;
+  sevenDayEl.textContent = usage.sevenDay.text;
+  sevenDayEl.dataset.band = usage.sevenDay.band;
+}
+// Tick the countdown roughly once a minute (it shows minute granularity).
+setInterval(() => {
+  if (lastUsageState) renderUsage(lastUsageState);
+}, 30_000);
+
 listen<HudState>("hud", (event) => {
   const view = formatHud(event.payload);
   labelEl.textContent = view.label;
@@ -104,15 +126,8 @@ listen<HudState>("hud", (event) => {
   card.classList.toggle("needs-human", view.needsHuman);
 
   // Usage limits block — hidden entirely for non-Claude/API-key setups.
-  if (view.usage === null) {
-    usageBlock.style.display = "none";
-  } else {
-    usageBlock.style.display = "";
-    fiveHourEl.textContent = view.usage.fiveHour.text;
-    fiveHourEl.dataset.band = view.usage.fiveHour.band;
-    sevenDayEl.textContent = view.usage.sevenDay.text;
-    sevenDayEl.dataset.band = view.usage.sevenDay.band;
-  }
+  lastUsageState = event.payload;
+  renderUsage(event.payload);
 }).catch(() => {
   /* not running inside Tauri — no live session */
 });

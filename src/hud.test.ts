@@ -65,52 +65,100 @@ test("needs-human overrides the bottom row with the warning line and sets the fl
 });
 
 // ─────────────────────────── usage limits (5h / 7d) ──────────────────────────
+// The reset phrase is parsed into an instant and shown as TIME REMAINING (not an
+// absolute clock/date): 5h → h+m, 7d → d+h. A fixed `now` is injected so the
+// countdown is deterministic. Both `now` and the reset are built in the runner's
+// local tz, so the difference is tz-independent.
+
+import { parseResetToMs, formatRemaining } from "./hud";
+
+const NOW = new Date(2026, 5, 26, 9, 0, 0).getTime(); // Jun 26 2026, 09:00 local
 
 const usagePayload = {
   sessionPercent: 31,
-  sessionReset: "Jun 26 at 11:59pm (Asia/Shanghai)",
+  sessionReset: "Jun 26 at 11:59pm (Asia/Shanghai)", // 14h59m after NOW
   weekPercent: 77,
-  weekReset: "Jun 30 at 3pm (Asia/Shanghai)",
+  weekReset: "Jun 30 at 3pm (Asia/Shanghai)",        // 4d6h after NOW
 };
 
-test("usage renders two compact lines: 5h shows the time, 7d shows the date", () => {
-  const v = formatHud({ ...base, model: "x", contextPercent: 10, usage: usagePayload });
+test("usage shows time remaining: 5h as h+m, 7d as d+h", () => {
+  const v = formatHud({ ...base, model: "x", contextPercent: 10, usage: usagePayload }, NOW);
   expect(v.usage).not.toBeNull();
-  expect(v.usage!.fiveHour.text).toBe("5h 31% · 11:59pm");
-  expect(v.usage!.sevenDay.text).toBe("7d 77% · Jun 30");
+  expect(v.usage!.fiveHour.text).toBe("5h 31% · 还剩 14h 59m");
+  expect(v.usage!.sevenDay.text).toBe("7d 77% · 还剩 4d 6h");
 });
 
 test("usage band follows the same thresholds as context (amber ≥70, red ≥90)", () => {
-  const v = formatHud({ ...base, model: "x", contextPercent: 10, usage: usagePayload });
+  const v = formatHud({ ...base, model: "x", contextPercent: 10, usage: usagePayload }, NOW);
   expect(v.usage!.fiveHour.band).toBe("green"); // 31%
   expect(v.usage!.sevenDay.band).toBe("amber"); // 77%
   const high = formatHud({
     ...base, model: "x", contextPercent: 10,
     usage: { ...usagePayload, weekPercent: 95 },
-  });
+  }, NOW);
   expect(high.usage!.sevenDay.band).toBe("red"); // 95%
 });
 
 test("usage is null when the payload is absent → frontend hides the block (non-Claude)", () => {
-  expect(formatHud({ ...base, model: "x", contextPercent: 10 }).usage).toBeNull();
-  expect(formatHud({ ...base, model: "x", contextPercent: 10, usage: null }).usage).toBeNull();
-  expect(formatHud({ ...base, model: "x", contextPercent: 10, usage: undefined }).usage).toBeNull();
+  expect(formatHud({ ...base, model: "x", contextPercent: 10 }, NOW).usage).toBeNull();
+  expect(formatHud({ ...base, model: "x", contextPercent: 10, usage: null }, NOW).usage).toBeNull();
+  expect(formatHud({ ...base, model: "x", contextPercent: 10, usage: undefined }, NOW).usage).toBeNull();
 });
 
-test("usage reset formatting degrades gracefully when the phrase has no ' at '", () => {
+test("an unparseable reset phrase drops the countdown suffix (shows just the percent)", () => {
   const v = formatHud({
     ...base, model: "x", contextPercent: 10,
-    usage: { sessionPercent: 5, sessionReset: "tomorrow", weekPercent: 12, weekReset: "Monday" },
-  });
-  // No " at " separator → fall back to the whole phrase rather than dropping it.
-  expect(v.usage!.fiveHour.text).toBe("5h 5% · tomorrow");
-  expect(v.usage!.sevenDay.text).toBe("7d 12% · Monday");
+    usage: { sessionPercent: 5, sessionReset: "soon", weekPercent: 12, weekReset: "later" },
+  }, NOW);
+  expect(v.usage!.fiveHour.text).toBe("5h 5%");
+  expect(v.usage!.sevenDay.text).toBe("7d 12%");
+});
+
+test("a reset already in the past shows 已重置 (not a negative countdown)", () => {
+  const v = formatHud({
+    ...base, model: "x", contextPercent: 10,
+    usage: { sessionPercent: 31, sessionReset: "Jun 26 at 8am", weekPercent: 77, weekReset: "Jun 30 at 3pm" },
+  }, NOW);
+  expect(v.usage!.fiveHour.text).toBe("5h 31% · 已重置");
 });
 
 test("usage percent is rounded for display", () => {
   const v = formatHud({
     ...base, model: "x", contextPercent: 10,
     usage: { ...usagePayload, sessionPercent: 30.6 as unknown as number },
-  });
-  expect(v.usage!.fiveHour.text).toBe("5h 31% · 11:59pm");
+  }, NOW);
+  expect(v.usage!.fiveHour.text).toBe("5h 31% · 还剩 14h 59m");
+});
+
+// ── parseResetToMs / formatRemaining (pure helpers) ──
+
+test("parseResetToMs handles am/pm, 24h, and the year-wrap into January", () => {
+  const noon = parseResetToMs("Jun 30 at 12pm (Asia/Shanghai)", NOW)!;
+  expect(new Date(noon).getHours()).toBe(12);
+  const midnight = parseResetToMs("Jun 30 at 12am", NOW)!;
+  expect(new Date(midnight).getHours()).toBe(0);
+  const h24 = parseResetToMs("Jun 30 at 23:59", NOW)!;
+  expect(new Date(h24).getHours()).toBe(23);
+  expect(new Date(h24).getMinutes()).toBe(59);
+
+  // Late December → a January reset must roll to next year (positive remaining).
+  const dec = new Date(2026, 11, 30, 10, 0, 0).getTime();
+  const jan = parseResetToMs("Jan 2 at 9am", dec)!;
+  expect(new Date(jan).getFullYear()).toBe(2027);
+  expect(jan).toBeGreaterThan(dec);
+});
+
+test("parseResetToMs returns null for a phrase with no parseable date/time", () => {
+  expect(parseResetToMs("tomorrow", NOW)).toBeNull();
+  expect(parseResetToMs("in 2 hours", NOW)).toBeNull();
+  expect(parseResetToMs("", NOW)).toBeNull();
+});
+
+test("formatRemaining: session=h+m, week=d+h, sub-unit drops the bigger unit, past=已重置", () => {
+  const min = 60_000, hr = 60 * min, day = 24 * hr;
+  expect(formatRemaining(NOW + 2 * hr + 15 * min, NOW, "session")).toBe("还剩 2h 15m");
+  expect(formatRemaining(NOW + 45 * min, NOW, "session")).toBe("还剩 45m");
+  expect(formatRemaining(NOW + 3 * day + 8 * hr, NOW, "week")).toBe("还剩 3d 8h");
+  expect(formatRemaining(NOW + 8 * hr, NOW, "week")).toBe("还剩 8h");
+  expect(formatRemaining(NOW - min, NOW, "session")).toBe("已重置");
 });

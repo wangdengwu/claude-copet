@@ -60,8 +60,11 @@ and emits a `HudSnapshot` to the frontend.
 - A failed/garbled `/usage` fetch leaves the last good values on the card (no
   flicker to blank), same "only overwrite on success" discipline the `/context`
   path already uses.
-- The two windows render as compact text with reset time, e.g.
-  `5h 31% · 11:59pm` / `7d 77% · Jun 30`.
+- The two windows render as compact text showing TIME REMAINING until reset
+  (not the absolute clock time / date): the 5h window as hours+minutes, the 7d
+  window as days+hours — e.g. `5h 31% · 还剩 2h 15m` / `7d 77% · 还剩 3d 8h`.
+  The countdown ticks down live. When the reset phrase can't be parsed into an
+  instant, the `· 还剩 …` suffix is dropped (show just `5h 31%`).
 - **Non-Claude / non-subscription sessions degrade gracefully.** When the
   current setup has no such limits (e.g. DeepSeek or any third-party model, or
   an API-key / non-subscription configuration), `/usage` does NOT print the
@@ -197,8 +200,10 @@ message (e.g. about a custom API key) without the two lines, so
 
 - Per-session usage attribution or the "what's contributing to your limits"
   breakdown — only the two top-line windows.
-- Parsing reset times into real timestamps / countdown timers — carry the
-  human-readable phrase as-is.
+- (Superseded) The reset phrase IS now parsed into an instant to drive a live
+  countdown (5h → h+m, 7d → d+h). The phrase's timezone parenthetical is assumed
+  equal to the machine-local tz; an unparseable phrase drops the countdown
+  suffix rather than showing an absolute date/time.
 - Historical charts, notifications/alerts when nearing a limit, or any
   cross-device aggregation.
 - Changing the `/context` fetch path.
