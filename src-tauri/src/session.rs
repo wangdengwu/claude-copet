@@ -4,6 +4,8 @@
 //! Slice 2: `session_label` (the cwd basename shown on the card). Later slices
 //! add transcript-tail parsing for context % and model.
 
+use std::time::Duration;
+
 use serde::Deserialize;
 
 use crate::events::{Event, Mood};
@@ -38,6 +40,13 @@ pub trait ContextClient: Send + Sync {
     /// Call `claude -p --resume <session_id> "/context"` from the session's cwd
     /// and return raw stdout. Returns `Err(())` on any failure.
     fn fetch_context(&self, session_id: &str, cwd: &str) -> Result<String, ()>;
+}
+
+/// Abstraction over `claude -p --output-format text "/usage"` so the watcher
+/// stays testable without the real CLI. `/usage` is account-global — no
+/// session id or cwd needed (unlike ContextClient).
+pub trait UsageClient: Send + Sync {
+    fn fetch_usage(&self) -> Result<String, ()>;
 }
 
 /// Fold one event into the needs-human attention flag.
@@ -211,6 +220,139 @@ pub fn model_friendly_name(model_id: &str) -> String {
         return model_id.to_string();
     }
     format!("{} {}", family_label, version.join("."))
+}
+
+// ─────────────────────────── UsageLimits + helpers ───────────────────────────
+
+/// Subscription usage limits parsed from `claude -p "/usage"`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UsageLimits {
+    pub session_percent: u8,
+    pub session_reset: String,
+    pub week_percent: u8,
+    pub week_reset: String,
+}
+
+/// Consecutive no-limit fetches after which auto-polling backs off.
+pub const USAGE_NO_LIMIT_BACKOFF: u32 = 2;
+
+/// Parse the two usage windows out of `claude -p "/usage"` stdout.
+///
+/// Looks for lines that start (after trimming) with:
+///   - `Current session` → session window (with or without a `(…)` qualifier)
+///   - `Current week`    → week window (with or without `(all models)`)
+///
+/// Ignores all other lines (including breakdown lines containing `% of your usage`).
+/// A line only yields a window if it carries both a `%` and a `resets ` clause,
+/// so prose lines sharing the prefix are skipped harmlessly.
+pub fn parse_usage_output(stdout: &str) -> Option<UsageLimits> {
+    let mut session_percent: Option<u8> = None;
+    let mut session_reset: Option<String> = None;
+    let mut week_percent: Option<u8> = None;
+    let mut week_reset: Option<String> = None;
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if session_percent.is_none() && trimmed.starts_with("Current session") {
+            if let Some((pct, reset)) = parse_usage_line(trimmed) {
+                session_percent = Some(pct);
+                session_reset = Some(reset);
+            }
+        } else if week_percent.is_none() && trimmed.starts_with("Current week") {
+            if let Some((pct, reset)) = parse_usage_line(trimmed) {
+                week_percent = Some(pct);
+                week_reset = Some(reset);
+            }
+        }
+    }
+
+    match (session_percent, session_reset, week_percent, week_reset) {
+        (Some(sp), Some(sr), Some(wp), Some(wr)) => Some(UsageLimits {
+            session_percent: sp,
+            session_reset: sr,
+            week_percent: wp,
+            week_reset: wr,
+        }),
+        _ => None,
+    }
+}
+
+/// Extract `(percent, reset_string)` from a single usage window line.
+/// Percent is parsed defensively: a comparator/approx prefix (`<1%`, `>99%`,
+/// `~5%`) and any decimal fraction (`8.5%`) are tolerated by taking the leading
+/// integer digits. Returns `None` if either component is missing.
+fn parse_usage_line(line: &str) -> Option<(u8, String)> {
+    // Find percent: locate the first `%` and back-scan for the number before it.
+    let pct_pos = line.find('%')?;
+    let before_pct = &line[..pct_pos];
+    // The number is the last whitespace-delimited token before `%`.
+    let num_str = before_pct.split_whitespace().last()?;
+    // Extract the leading integer digits, ignoring a comparator/approx prefix
+    // (`<`, `>`, `~`) and any decimal fraction. Without this a real Claude
+    // session reading `<1%` or `>99%` would fail to parse and blank the whole
+    // HUD usage block.
+    let digits: String = num_str
+        .chars()
+        .skip_while(|c| !c.is_ascii_digit())
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    let pct: u8 = digits.parse().ok()?;
+
+    // Reset string: text after the first `resets ` on this line.
+    let reset = if let Some(after) = line.find("resets ") {
+        line[after + "resets ".len()..].trim().to_string()
+    } else {
+        return None;
+    };
+
+    Some((pct, reset))
+}
+
+/// Decide whether the auto-poll timer should trigger a usage fetch.
+///
+/// - If `no_limit_streak >= USAGE_NO_LIMIT_BACKOFF` → backed off; return `false`.
+/// - If `elapsed` is `None` (no fetch yet) → startup fetch; return `true`.
+/// - Otherwise → `elapsed >= interval`.
+pub fn usage_should_auto_poll(
+    elapsed: Option<Duration>,
+    interval: Duration,
+    no_limit_streak: u32,
+) -> bool {
+    if no_limit_streak >= USAGE_NO_LIMIT_BACKOFF {
+        return false;
+    }
+    match elapsed {
+        None => true,
+        Some(e) => e >= interval,
+    }
+}
+
+/// Decide whether a manual (user-triggered) fetch is allowed.
+///
+/// - `None` (no prior fetch) → `true`.
+/// - `Some(e)` → `e >= min_gap`.
+pub fn usage_manual_allowed(elapsed: Option<Duration>, min_gap: Duration) -> bool {
+    match elapsed {
+        None => true,
+        Some(e) => e >= min_gap,
+    }
+}
+
+/// Fold a fetch outcome into the current `(payload, no_limit_streak)` state.
+///
+/// - `Err(())` → transient failure: keep previous payload and streak unchanged.
+/// - `Ok(None)` → non-Claude / no limits: clear payload, increment streak.
+/// - `Ok(Some(u))` → real result: update payload, reset streak to 0.
+pub fn apply_usage_fetch(
+    prev: Option<UsageLimits>,
+    streak: u32,
+    outcome: Result<Option<UsageLimits>, ()>,
+) -> (Option<UsageLimits>, u32) {
+    match outcome {
+        Err(()) => (prev, streak),
+        Ok(None) => (None, streak + 1),
+        Ok(Some(u)) => (Some(u), 0),
+    }
 }
 
 /// The HUD's session label: the last path component of `cwd`.

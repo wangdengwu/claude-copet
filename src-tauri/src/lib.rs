@@ -20,7 +20,35 @@ use std::os::unix::fs::PermissionsExt;
 use serde::Serialize;
 use tauri::Emitter;
 
-use crate::session::ContextClient;
+use tauri::Manager;
+
+use crate::session::{ContextClient, UsageClient};
+
+/// The subscription usage limits surfaced in the HUD snapshot.
+/// Serialized as a nested object; `null` when no limits apply (non-Claude /
+/// API-key setup) or before the first successful fetch.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct UsageView {
+    #[serde(rename = "sessionPercent")]
+    session_percent: u8,
+    #[serde(rename = "sessionReset")]
+    session_reset: String,
+    #[serde(rename = "weekPercent")]
+    week_percent: u8,
+    #[serde(rename = "weekReset")]
+    week_reset: String,
+}
+
+impl From<&session::UsageLimits> for UsageView {
+    fn from(u: &session::UsageLimits) -> Self {
+        UsageView {
+            session_percent: u.session_percent,
+            session_reset: u.session_reset.clone(),
+            week_percent: u.week_percent,
+            week_reset: u.week_reset.clone(),
+        }
+    }
+}
 
 /// The full HUD snapshot emitted to the frontend. Grows across slices
 /// (model / context % / activity / needs-human); slice 2 carries the session
@@ -44,6 +72,9 @@ struct HudSnapshot {
     /// True while Claude is waiting on the user (permission/input or turn done).
     #[serde(rename = "needsHuman")]
     needs_human: bool,
+    /// Subscription usage limits, or `null` when not applicable / not yet fetched.
+    #[serde(rename = "usage")]
+    usage: Option<UsageView>,
 }
 
 /// Read at most `max_bytes` from the END of `path` (a bounded tail — never loads
@@ -81,6 +112,35 @@ impl session::ContextClient for ClaudeCliContextClient {
             dirs_next().join(".claude-copet").join("context-debug.log"),
             format!(
                 "sid={session_id} cwd={cwd} ok={} stdout={stdout} stderr={stderr}\n",
+                output.status.success()
+            ),
+        );
+        if !output.status.success() {
+            return Err(());
+        }
+        Ok(stdout)
+    }
+}
+
+// ─────────────────────── production UsageClient ──────────────────────────────
+
+struct ClaudeCliUsageClient;
+
+impl session::UsageClient for ClaudeCliUsageClient {
+    fn fetch_usage(&self) -> Result<String, ()> {
+        let output = std::process::Command::new("claude")
+            .arg("-p")
+            .arg("--output-format")
+            .arg("text")
+            .arg("/usage")
+            .output()
+            .map_err(|_| ())?;
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let _ = std::fs::write(
+            dirs_next().join(".claude-copet").join("usage-debug.log"),
+            format!(
+                "ok={} stdout={stdout} stderr={stderr}\n",
                 output.status.success()
             ),
         );
@@ -168,10 +228,14 @@ fn announce(app: &tauri::AppHandle, mood: events::Mood) {
     let _ = app.emit("mood", mood);
 }
 
+/// Shared flag: the `refresh_usage` Tauri command sets this to `true`; the
+/// watcher loop drains it each tick.
+struct UsageRefreshFlag(Arc<Mutex<bool>>);
+
 /// Drive the mood state machine from the event log. New events preempt the mood
 /// and reset its decay timer; quiet polls are pure time ticks that let the mood
 /// decay. Mood is ephemeral — nothing is persisted.
-fn watch_event_log(app: tauri::AppHandle) {
+fn watch_event_log(app: tauri::AppHandle, usage_refresh_requested: Arc<Mutex<bool>>) {
     let Some(log_path) = event_log_path() else {
         return;
     };
@@ -214,6 +278,22 @@ fn watch_event_log(app: tauri::AppHandle) {
     // Option so rapid switches overwrite; NOT consumed with .take() so it
     // survives when in_flight blocks the spawn.
     let mut pending_context_fetch: Option<(String, String)> = None;
+
+    // ── Usage-client state ────────────────────────────────────────────────────
+    // The last successfully-parsed UsageLimits (None → hide the usage block).
+    let mut usage_payload: Option<session::UsageLimits> = None;
+    // Consecutive no-limits fetches (backs off auto-polling after USAGE_NO_LIMIT_BACKOFF).
+    let mut usage_no_limit_streak: u32 = 0;
+    // Instant of the last initiated fetch (used for interval + throttle checks).
+    let mut last_usage_fetch: Option<Instant> = None;
+    // One-flight guard: prevents a second /usage from spawning while one is running.
+    let usage_in_flight: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
+    // Mailbox written by the background fetch thread; drained on the next tick.
+    #[allow(clippy::type_complexity)]
+    let usage_result: Arc<Mutex<Option<Result<Option<session::UsageLimits>, ()>>>> =
+        Arc::new(Mutex::new(None));
+    // ─────────────────────────────────────────────────────────────────────────
+
     let _ = app.emit("hud", &last_hud);
 
     loop {
@@ -348,6 +428,9 @@ fn watch_event_log(app: tauri::AppHandle) {
                         .as_ref()
                         .zip(active_cwd.as_ref())
                         .map(|(s, c)| (s.clone(), c.clone()));
+                    // Model switch: also re-trigger usage so a switch back to Claude
+                    // re-shows limits even when the no-limit backoff is active.
+                    *usage_refresh_requested.lock().unwrap() = true;
                 }
 
                 // Compute window using L1 (this session's cached /context) or L3
@@ -414,6 +497,52 @@ fn watch_event_log(app: tauri::AppHandle) {
             };
         }
 
+        // ── Usage: drain finished fetch, decide whether to kick off a new one ──
+
+        // 1. Drain: take any result that the background thread wrote.
+        if let Some(outcome) = usage_result.lock().unwrap().take() {
+            let (p, s) = session::apply_usage_fetch(
+                usage_payload.take(),
+                usage_no_limit_streak,
+                outcome,
+            );
+            usage_payload = p;
+            usage_no_limit_streak = s;
+        }
+
+        // 2. Decide.
+        let settings_now = settings_path()
+            .and_then(|p| settings::Settings::load_from(&p).ok())
+            .unwrap_or_else(settings::Settings::default);
+        let interval =
+            Duration::from_secs(60 * u64::from(settings_now.effective_refresh_minutes()));
+        let elapsed = last_usage_fetch.map(|t| now.duration_since(t));
+        let manual = {
+            let mut g = usage_refresh_requested.lock().unwrap();
+            let m = *g;
+            *g = false;
+            m
+        };
+        let do_fetch = (manual
+            && session::usage_manual_allowed(elapsed, Duration::from_secs(30)))
+            || session::usage_should_auto_poll(elapsed, interval, usage_no_limit_streak);
+
+        // 3. Spawn fetch if needed and not already in-flight.
+        if do_fetch && !*usage_in_flight.lock().unwrap() {
+            *usage_in_flight.lock().unwrap() = true;
+            last_usage_fetch = Some(now);
+            let inflight_clone = usage_in_flight.clone();
+            let result_clone = usage_result.clone();
+            std::thread::spawn(move || {
+                let client = ClaudeCliUsageClient;
+                let out = client
+                    .fetch_usage()
+                    .map(|s| session::parse_usage_output(&s));
+                *result_clone.lock().unwrap() = Some(out);
+                *inflight_clone.lock().unwrap() = false;
+            });
+        }
+
         // ── HUD: rebuild every tick (so activity decays to "Idle" and the
         //    needs-human alert clears even on quiet polls) and emit on change. ──
         let hud = HudSnapshot {
@@ -426,6 +555,7 @@ fn watch_event_log(app: tauri::AppHandle) {
             context_percent: cached_context,
             activity: session::activity_label(mood_state.mood, last_tool.as_deref()),
             needs_human: attention,
+            usage: usage_payload.as_ref().map(UsageView::from),
         };
         if hud != last_hud {
             let _ = app.emit("hud", &hud);
@@ -480,6 +610,12 @@ fn watch_event_log(app: tauri::AppHandle) {
 }
 
 // ─────────────────────────── Tauri commands ──────────────────────────────────
+
+/// Request an immediate usage re-fetch. Subject to the server-side 30 s throttle.
+#[tauri::command]
+fn refresh_usage(state: tauri::State<UsageRefreshFlag>) {
+    *state.0.lock().unwrap() = true;
+}
 
 #[tauri::command]
 fn get_settings() -> settings::Settings {
@@ -590,7 +726,9 @@ pub fn run() {
         )
         .setup(|app| {
             let handle = app.handle().clone();
-            std::thread::spawn(move || watch_event_log(handle));
+            let flag: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
+            app.manage(UsageRefreshFlag(flag.clone()));
+            std::thread::spawn(move || watch_event_log(handle, flag));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -600,7 +738,8 @@ pub fn run() {
             quit_app,
             install_hooks,
             uninstall_hooks,
-            hooks_status
+            hooks_status,
+            refresh_usage
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

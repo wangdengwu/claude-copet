@@ -63,7 +63,33 @@ const activityRow = document.createElement("div");
 activityRow.className = "hud-activity";
 activityRow.textContent = "Idle";
 
-hudInfo.append(topRow, barRow, activityRow);
+// Usage block: two compact lines (5h / 7d) + a refresh button.
+const usageBlock = document.createElement("div");
+usageBlock.className = "hud-usage";
+usageBlock.style.display = "none";
+
+const fiveHourEl = document.createElement("span");
+fiveHourEl.className = "hud-usage-line";
+const sevenDayEl = document.createElement("span");
+sevenDayEl.className = "hud-usage-line";
+
+const refreshBtn = document.createElement("button");
+refreshBtn.className = "hud-usage-refresh";
+refreshBtn.textContent = "↻";
+refreshBtn.title = "Refresh usage";
+
+// Tiny debounce: ignore clicks within 1 s (real throttle is enforced in Rust).
+let lastRefreshAt = 0;
+refreshBtn.addEventListener("click", async () => {
+  const now = Date.now();
+  if (now - lastRefreshAt < 1000) return;
+  lastRefreshAt = now;
+  await invokeOrNull("refresh_usage");
+});
+
+usageBlock.append(fiveHourEl, sevenDayEl, refreshBtn);
+
+hudInfo.append(topRow, barRow, activityRow, usageBlock);
 
 listen<HudState>("hud", (event) => {
   const view = formatHud(event.payload);
@@ -76,6 +102,17 @@ listen<HudState>("hud", (event) => {
   activityRow.textContent = view.activityText;
   // The whole card turns amber and pulses when Claude is waiting on the user.
   card.classList.toggle("needs-human", view.needsHuman);
+
+  // Usage limits block — hidden entirely for non-Claude/API-key setups.
+  if (view.usage === null) {
+    usageBlock.style.display = "none";
+  } else {
+    usageBlock.style.display = "";
+    fiveHourEl.textContent = view.usage.fiveHour.text;
+    fiveHourEl.dataset.band = view.usage.fiveHour.band;
+    sevenDayEl.textContent = view.usage.sevenDay.text;
+    sevenDayEl.dataset.band = view.usage.sevenDay.band;
+  }
 }).catch(() => {
   /* not running inside Tauri — no live session */
 });

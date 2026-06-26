@@ -10,12 +10,32 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct Settings {}
+fn default_usage_refresh_minutes() -> u8 {
+    5
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Settings {
+    #[serde(default = "default_usage_refresh_minutes")]
+    pub usage_refresh_minutes: u8,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            usage_refresh_minutes: 5,
+        }
+    }
+}
 
 impl Settings {
-    pub fn default() -> Self {
-        Settings {}
+    /// Returns the refresh interval clamped to the offered set {5, 10, 15}.
+    /// Any other persisted value falls back to 5.
+    pub fn effective_refresh_minutes(&self) -> u8 {
+        match self.usage_refresh_minutes {
+            5 | 10 | 15 => self.usage_refresh_minutes,
+            _ => 5,
+        }
     }
 
     /// Load settings from an explicit path (useful for tests / DI).

@@ -47,6 +47,16 @@ export function mountSettingsPanel(container: HTMLElement): void {
       </button>
     </div>
     <div id="s-hook-note" style="font-size:10px;color:#aaa"></div>
+    <div style="margin-top:8px;font-weight:bold;margin-bottom:4px">Usage Refresh</div>
+    <div style="display:flex;align-items:center;gap:6px;font-size:10px">
+      <label for="s-usage-interval">Interval</label>
+      <select id="s-usage-interval"
+        style="background:#444;color:#eee;border:1px solid #666;padding:2px 4px;font-family:monospace;font-size:10px;cursor:pointer">
+        <option value="5">5 min</option>
+        <option value="10">10 min</option>
+        <option value="15">15 min</option>
+      </select>
+    </div>
   `;
 
   container.appendChild(panel);
@@ -55,6 +65,7 @@ export function mountSettingsPanel(container: HTMLElement): void {
   const btnConnect = panel.querySelector<HTMLButtonElement>("#s-connect")!;
   const btnDisconnect = panel.querySelector<HTMLButtonElement>("#s-disconnect")!;
   const hookNoteEl = panel.querySelector<HTMLElement>("#s-hook-note")!;
+  const usageIntervalEl = panel.querySelector<HTMLSelectElement>("#s-usage-interval")!;
 
   // Refresh the Claude Code connection badge.
   async function refreshHookStatus(): Promise<void> {
@@ -65,6 +76,14 @@ export function mountSettingsPanel(container: HTMLElement): void {
     } else {
       hookStatusEl.textContent = "○ Not connected";
       hookStatusEl.style.color = "#aaa";
+    }
+  }
+
+  // Load current usage refresh interval from settings.
+  async function refreshUsageInterval(): Promise<void> {
+    const settings = await invokeOrNull<Record<string, unknown>>("get_settings");
+    if (settings && typeof settings["usage_refresh_minutes"] === "number") {
+      usageIntervalEl.value = String(settings["usage_refresh_minutes"]);
     }
   }
 
@@ -90,6 +109,14 @@ export function mountSettingsPanel(container: HTMLElement): void {
     setTimeout(() => { hookNoteEl.textContent = ""; }, 4000);
   });
 
+  // Persist usage refresh interval when changed.
+  usageIntervalEl.addEventListener("change", async () => {
+    const minutes = Number(usageIntervalEl.value);
+    const current = await invokeOrNull<Record<string, unknown>>("get_settings");
+    const updated = { ...(current ?? {}), usage_refresh_minutes: minutes };
+    await invokeOrNull("set_settings", { s: updated });
+  });
+
   // Toggle visibility via a small gear button.
   const toggle = document.createElement("button");
   toggle.textContent = "gear";
@@ -105,6 +132,7 @@ export function mountSettingsPanel(container: HTMLElement): void {
       panel.style.display = "block";
       toggle.style.display = "none";
       refreshHookStatus();
+      refreshUsageInterval();
     }
   }
 
