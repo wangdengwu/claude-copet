@@ -22,7 +22,21 @@
         "transparent": true,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "shadow": false
+        "shadow": false,
+        "url": "index.html"
+      },
+      {
+        "label": "settings",
+        "title": "claude-copet Settings",
+        "width": 300,
+        "height": 240,
+        "resizable": false,
+        "decorations": true,
+        "transparent": false,
+        "alwaysOnTop": false,
+        "skipTaskbar": true,
+        "visible": false,
+        "url": "settings.html"
       }
     ],
     "security": {

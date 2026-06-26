@@ -30,7 +30,10 @@ fn load_from_missing_path_returns_default() {
     let path = dir.path().join("does_not_exist.json");
 
     let result = Settings::load_from(&path);
-    assert!(result.is_ok(), "missing file must return Ok(default), not Err");
+    assert!(
+        result.is_ok(),
+        "missing file must return Ok(default), not Err"
+    );
     assert_eq!(result.unwrap(), Settings::default());
 }
 
@@ -38,9 +41,16 @@ fn load_from_missing_path_returns_default() {
 #[test]
 fn save_to_creates_parent_dirs() {
     let dir = TempDir::new().expect("temp dir");
-    let nested = dir.path().join("a").join("b").join("c").join("settings.json");
+    let nested = dir
+        .path()
+        .join("a")
+        .join("b")
+        .join("c")
+        .join("settings.json");
 
-    Settings::default().save_to(&nested).expect("save must create parent dirs and succeed");
+    Settings::default()
+        .save_to(&nested)
+        .expect("save must create parent dirs and succeed");
     assert!(nested.exists(), "settings file must exist after save");
 }
 
@@ -104,7 +114,11 @@ fn out_of_range_interval_falls_back_to_default() {
     let path = temp_settings_path(&dir);
     std::fs::write(&path, br#"{"usage_refresh_minutes":7}"#).unwrap();
     let loaded = Settings::load_from(&path).expect("must load");
-    assert_eq!(loaded.effective_refresh_minutes(), 5, "7 is not offered → default 5");
+    assert_eq!(
+        loaded.effective_refresh_minutes(),
+        5,
+        "7 is not offered → default 5"
+    );
 
     std::fs::write(&path, br#"{"usage_refresh_minutes":0}"#).unwrap();
     let zero = Settings::load_from(&path).expect("must load");

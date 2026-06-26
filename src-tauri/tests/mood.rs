@@ -61,7 +61,7 @@ fn no_premature_decay() {
 #[test]
 fn idle_to_sleep() {
     let s = MoodState::initial(); // Idle, elapsed=0
-    // delta >= 20s — should enter Sleep
+                                  // delta >= 20s — should enter Sleep
     let (next, sig) = step(&s, None, Duration::from_secs(20));
     assert_eq!(next.mood, Mood::Sleep);
     assert!(sig.mood_changed);
@@ -90,6 +90,11 @@ fn tired_reachable() {
 
     // Now active_streak should be >= 60s. A decay tick (delta >= Work TTL=5s) should go to Tired.
     let (final_state, sig) = step(&state, None, Duration::from_secs(5));
-    assert_eq!(final_state.mood, Mood::Tired, "expected Tired after large active_streak, got {:?}", final_state.mood);
+    assert_eq!(
+        final_state.mood,
+        Mood::Tired,
+        "expected Tired after large active_streak, got {:?}",
+        final_state.mood
+    );
     assert!(sig.mood_changed);
 }

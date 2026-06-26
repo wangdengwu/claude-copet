@@ -4,7 +4,6 @@ import type { Mood } from "./animation";
 import { SHEETS } from "./sprites";
 import { startRenderLoop } from "./render";
 import { createBubble } from "./bubble";
-import { mountSettingsPanel, openSettings } from "./settings";
 import { formatHud } from "./hud";
 import type { HudState } from "./hud";
 
@@ -24,8 +23,8 @@ function sizeCanvas(): void {
 sizeCanvas();
 window.addEventListener("resize", sizeCanvas);
 
-// Mount the settings panel (gear button → overlay).
-mountSettingsPanel(document.body);
+// The settings panel is now a separate native window (open via right-click →
+// Settings); the old HTML overlay has been removed. No gear button to mount.
 
 // Start idle; the Rust core emits "mood" as events flow in from Claude Code.
 const controller = startRenderLoop(canvas, SHEETS.idle);
@@ -208,70 +207,8 @@ card.addEventListener("mouseup", async (e) => {
 });
 
 // ─── Context menu ────────────────────────────────────────────────────────────
-
-// Build a small HTML context menu and attach it to document.body.
-const ctxMenu = document.createElement("div");
-ctxMenu.id = "ctx-menu";
-ctxMenu.style.cssText = [
-  "position:fixed;background:rgba(20,20,20,0.92);color:#eee;",
-  "font-family:monospace;font-size:12px;border-radius:4px;",
-  "border:1px solid #555;padding:4px 0;min-width:140px;",
-  "display:none;z-index:200;box-shadow:0 2px 8px rgba(0,0,0,0.5);",
-].join("");
-
-function makeItem(label: string, onClick: () => void): HTMLDivElement {
-  const item = document.createElement("div");
-  item.textContent = label;
-  item.style.cssText = "padding:5px 12px;cursor:pointer;";
-  item.addEventListener("mouseenter", () => { item.style.background = "rgba(255,255,255,0.1)"; });
-  item.addEventListener("mouseleave", () => { item.style.background = ""; });
-  item.addEventListener("mousedown", (e) => { e.stopPropagation(); onClick(); hideCtxMenu(); });
-  return item;
-}
-
-const refreshUsageItem = makeItem("Refresh usage", () => {
-  // The 30s throttle is enforced in Rust; the menu just requests a re-fetch.
-  void invokeOrNull("refresh_usage");
-});
-
-const settingsItem = makeItem("Settings", () => openSettings());
-
-const quitItem = makeItem("Quit", async () => {
-  try {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    await getCurrentWindow().close();
-  } catch {
-    // Fallback: use the Rust command.
-    await invokeOrNull("quit_app");
-  }
-});
-
-ctxMenu.appendChild(refreshUsageItem);
-ctxMenu.appendChild(settingsItem);
-ctxMenu.appendChild(quitItem);
-document.body.appendChild(ctxMenu);
-
-function showCtxMenu(x: number, y: number): void {
-  ctxMenu.style.left = `${x}px`;
-  ctxMenu.style.top = `${y}px`;
-  ctxMenu.style.display = "block";
-}
-
-function hideCtxMenu(): void {
-  ctxMenu.style.display = "none";
-}
-
+// Native OS menu popped from Rust — never clipped by the tiny card window.
 card.addEventListener("contextmenu", (e) => {
   e.preventDefault();
-  showCtxMenu(e.clientX, e.clientY);
-});
-
-document.addEventListener("mousedown", (e) => {
-  if (ctxMenu.style.display !== "none" && !ctxMenu.contains(e.target as Node)) {
-    hideCtxMenu();
-  }
-});
-
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") hideCtxMenu();
+  void invokeOrNull("show_context_menu");
 });

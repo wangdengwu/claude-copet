@@ -67,7 +67,12 @@ fn top_level_cwd_wins_over_a_nested_tool_input_key() {
         .stdout(Stdio::null())
         .spawn()
         .expect("spawn hook");
-    child.stdin.take().unwrap().write_all(payload.as_bytes()).unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(payload.as_bytes())
+        .unwrap();
     assert!(child.wait().expect("wait").success());
 
     let log = home.path().join(".claude-copet").join("events.jsonl");
@@ -75,7 +80,10 @@ fn top_level_cwd_wins_over_a_nested_tool_input_key() {
     let v: serde_json::Value =
         serde_json::from_str(contents.lines().last().unwrap()).expect("valid JSON");
 
-    assert_eq!(v["cwd"], "/Users/me/realproj", "top-level session cwd must win");
+    assert_eq!(
+        v["cwd"], "/Users/me/realproj",
+        "top-level session cwd must win"
+    );
     assert_eq!(v["tool"], "Bash");
     assert_eq!(v["session"], "s1");
 }

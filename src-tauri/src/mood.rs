@@ -128,7 +128,9 @@ pub fn step(state: &MoodState, event: Option<&Event>, delta: Duration) -> (MoodS
                         elapsed,
                         active_streak: Duration::ZERO,
                     },
-                    Signals { mood_changed: false },
+                    Signals {
+                        mood_changed: false,
+                    },
                 )
             }
         }
@@ -138,7 +140,9 @@ pub fn step(state: &MoodState, event: Option<&Event>, delta: Duration) -> (MoodS
                 elapsed,
                 active_streak: Duration::ZERO,
             },
-            Signals { mood_changed: false },
+            Signals {
+                mood_changed: false,
+            },
         ),
         active_mood => {
             let ttl = decay_ttl(active_mood).expect("active mood has a TTL");
@@ -171,7 +175,9 @@ pub fn step(state: &MoodState, event: Option<&Event>, delta: Duration) -> (MoodS
                         elapsed,
                         active_streak,
                     },
-                    Signals { mood_changed: false },
+                    Signals {
+                        mood_changed: false,
+                    },
                 )
             }
         }

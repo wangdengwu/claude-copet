@@ -1,10 +1,9 @@
-// Settings panel. For the HUD product this is just the Claude Code
-// Connect / Disconnect controls (install / remove the perception hooks).
-// Guards invoke so plain `vite dev` (no Tauri runtime) does not crash.
+// Settings now live in a separate native window (settings.html / settings-page.ts).
+// This module exports only the external door the old HTML menu used; the call is
+// now a thin wrapper over the Rust command that opens the settings window.
 
 async function invokeOrNull<T>(cmd: string, args?: unknown): Promise<T | null> {
   try {
-    // Dynamic import so the bundle doesn't break in a plain browser context.
     const { invoke } = await import("@tauri-apps/api/core");
     return await invoke<T>(cmd, args as Record<string, unknown>);
   } catch {
@@ -12,142 +11,6 @@ async function invokeOrNull<T>(cmd: string, args?: unknown): Promise<T | null> {
   }
 }
 
-// Exposed so external callers (e.g. the context menu) can open the panel.
-let _openSettingsFn: (() => void) | null = null;
 export function openSettings(): void {
-  _openSettingsFn?.();
-}
-
-/** Build and attach the settings panel to the given container element. */
-export function mountSettingsPanel(container: HTMLElement): void {
-  const panel = document.createElement("div");
-  panel.id = "settings-panel";
-  panel.style.cssText = [
-    "position:fixed;bottom:8px;right:8px;background:rgba(0,0,0,0.75);",
-    "color:#eee;font-family:monospace;font-size:11px;padding:8px;",
-    "border-radius:4px;width:220px;display:none;z-index:100;",
-  ].join("");
-
-  panel.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <span style="font-weight:bold">Settings</span>
-      <button id="s-close" title="Close (Esc)"
-        style="background:none;border:none;color:#eee;font-family:monospace;font-size:13px;line-height:1;cursor:pointer;padding:0 2px">✕</button>
-    </div>
-    <div style="font-weight:bold;margin-bottom:4px">Claude Code</div>
-    <div id="s-hook-status" style="margin-bottom:4px;font-size:10px"></div>
-    <div style="display:flex;gap:4px;margin-bottom:4px">
-      <button id="s-connect"
-        style="flex:1;background:#444;color:#eee;border:1px solid #666;padding:3px;cursor:pointer">
-        Connect
-      </button>
-      <button id="s-disconnect"
-        style="flex:1;background:#444;color:#eee;border:1px solid #666;padding:3px;cursor:pointer">
-        Disconnect
-      </button>
-    </div>
-    <div id="s-hook-note" style="font-size:10px;color:#aaa"></div>
-    <div style="margin-top:8px;font-weight:bold;margin-bottom:4px">Usage Refresh</div>
-    <div style="display:flex;align-items:center;gap:6px;font-size:10px">
-      <label for="s-usage-interval">Interval</label>
-      <select id="s-usage-interval"
-        style="background:#444;color:#eee;border:1px solid #666;padding:2px 4px;font-family:monospace;font-size:10px;cursor:pointer">
-        <option value="5">5 min</option>
-        <option value="10">10 min</option>
-        <option value="15">15 min</option>
-      </select>
-    </div>
-  `;
-
-  container.appendChild(panel);
-
-  const hookStatusEl = panel.querySelector<HTMLElement>("#s-hook-status")!;
-  const btnConnect = panel.querySelector<HTMLButtonElement>("#s-connect")!;
-  const btnDisconnect = panel.querySelector<HTMLButtonElement>("#s-disconnect")!;
-  const hookNoteEl = panel.querySelector<HTMLElement>("#s-hook-note")!;
-  const usageIntervalEl = panel.querySelector<HTMLSelectElement>("#s-usage-interval")!;
-
-  // Refresh the Claude Code connection badge.
-  async function refreshHookStatus(): Promise<void> {
-    const installed = await invokeOrNull<boolean>("hooks_status");
-    if (installed) {
-      hookStatusEl.textContent = "● Connected";
-      hookStatusEl.style.color = "#7ec";
-    } else {
-      hookStatusEl.textContent = "○ Not connected";
-      hookStatusEl.style.color = "#aaa";
-    }
-  }
-
-  // Load current usage refresh interval from settings.
-  async function refreshUsageInterval(): Promise<void> {
-    const settings = await invokeOrNull<Record<string, unknown>>("get_settings");
-    if (settings && typeof settings["usage_refresh_minutes"] === "number") {
-      usageIntervalEl.value = String(settings["usage_refresh_minutes"]);
-    }
-  }
-
-  btnConnect.addEventListener("click", async () => {
-    const result = await invokeOrNull<null>("install_hooks");
-    if (result !== null) {
-      hookNoteEl.textContent = "Restart Claude Code to apply.";
-    } else {
-      hookNoteEl.textContent = "Could not install hooks (offline mode).";
-    }
-    await refreshHookStatus();
-    setTimeout(() => { hookNoteEl.textContent = ""; }, 4000);
-  });
-
-  btnDisconnect.addEventListener("click", async () => {
-    const result = await invokeOrNull<null>("uninstall_hooks");
-    if (result !== null) {
-      hookNoteEl.textContent = "Restart Claude Code to apply.";
-    } else {
-      hookNoteEl.textContent = "Could not remove hooks (offline mode).";
-    }
-    await refreshHookStatus();
-    setTimeout(() => { hookNoteEl.textContent = ""; }, 4000);
-  });
-
-  // Persist usage refresh interval when changed.
-  usageIntervalEl.addEventListener("change", async () => {
-    const minutes = Number(usageIntervalEl.value);
-    const current = await invokeOrNull<Record<string, unknown>>("get_settings");
-    const updated = { ...(current ?? {}), usage_refresh_minutes: minutes };
-    await invokeOrNull("set_settings", { s: updated });
-  });
-
-  // The panel is opened from the right-click context menu's "Settings" item
-  // (via openSettings → openPanel); there is no separate gear button.
-  function openPanel(): void {
-    if (panel.style.display === "none") {
-      panel.style.display = "block";
-      refreshHookStatus();
-      refreshUsageInterval();
-    }
-  }
-
-  function closePanel(): void {
-    panel.style.display = "none";
-  }
-
-  // Wire the module-level export so the context menu can call openSettings().
-  _openSettingsFn = openPanel;
-
-  panel.querySelector<HTMLButtonElement>("#s-close")!.addEventListener("click", closePanel);
-
-  // Close on Escape.
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && panel.style.display !== "none") closePanel();
-  });
-
-  // Close when pressing OUTSIDE the panel. Use mousedown (not click): the
-  // context-menu items already call e.stopPropagation() on their mousedown, so
-  // the press that opens the panel never reaches this handler — only a genuine
-  // outside press closes it.
-  document.addEventListener("mousedown", (e) => {
-    if (panel.style.display !== "none" && !panel.contains(e.target as Node)) {
-      closePanel();
-    }
-  });
+  void invokeOrNull("open_settings_window");
 }

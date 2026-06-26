@@ -5,9 +5,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use claude_copet_lib::session::{
-    apply_usage_fetch, parse_usage_output, UsageClient, UsageLimits,
-};
+use claude_copet_lib::session::{apply_usage_fetch, parse_usage_output, UsageClient, UsageLimits};
 
 /// A stub: returns canned stdout, or `Err` when constructed with an error flag.
 struct StubUsageClient {
@@ -17,10 +15,16 @@ struct StubUsageClient {
 
 impl StubUsageClient {
     fn ok(stdout: &str) -> Self {
-        Self { canned: Some(stdout.to_string()), calls: Arc::new(Mutex::new(0)) }
+        Self {
+            canned: Some(stdout.to_string()),
+            calls: Arc::new(Mutex::new(0)),
+        }
     }
     fn err() -> Self {
-        Self { canned: None, calls: Arc::new(Mutex::new(0)) }
+        Self {
+            canned: None,
+            calls: Arc::new(Mutex::new(0)),
+        }
     }
     fn calls(&self) -> u32 {
         *self.calls.lock().unwrap()
@@ -90,7 +94,10 @@ fn transient_error_preserves_previous_payload() {
     });
     let client = StubUsageClient::err();
     let (payload, streak) = cycle(&client, prev.clone(), 0);
-    assert_eq!(payload, prev, "a transient CLI error keeps the last good values");
+    assert_eq!(
+        payload, prev,
+        "a transient CLI error keeps the last good values"
+    );
     assert_eq!(streak, 0, "error is not a no-limits signal");
     assert_eq!(client.calls(), 1);
 }

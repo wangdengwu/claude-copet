@@ -4,7 +4,10 @@ use claude_copet_lib::session::session_label;
 
 #[test]
 fn label_is_last_component_of_unix_path() {
-    assert_eq!(session_label("/Users/me/Study/claude-copet"), "claude-copet");
+    assert_eq!(
+        session_label("/Users/me/Study/claude-copet"),
+        "claude-copet"
+    );
 }
 
 #[test]

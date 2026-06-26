@@ -130,7 +130,10 @@ Current session: >99% used · resets Jun 26 at 11:59pm
 Current week: 100% used · resets Jun 30 at 3pm";
     let u = parse_usage_output(s).expect("'>99%' / '100%' must parse");
     assert_eq!(u.session_percent, 99);
-    assert_eq!(u.week_percent, 100, "100% is a valid u8 and must round-trip");
+    assert_eq!(
+        u.week_percent, 100,
+        "100% is a valid u8 and must round-trip"
+    );
 }
 
 #[test]
@@ -167,19 +170,43 @@ fn auto_poll_fires_on_startup_before_any_fetch() {
 #[test]
 fn auto_poll_waits_until_interval_elapses() {
     let interval = Duration::from_secs(300);
-    assert!(!usage_should_auto_poll(Some(Duration::from_secs(100)), interval, 0));
-    assert!(usage_should_auto_poll(Some(Duration::from_secs(300)), interval, 0));
-    assert!(usage_should_auto_poll(Some(Duration::from_secs(301)), interval, 0));
+    assert!(!usage_should_auto_poll(
+        Some(Duration::from_secs(100)),
+        interval,
+        0
+    ));
+    assert!(usage_should_auto_poll(
+        Some(Duration::from_secs(300)),
+        interval,
+        0
+    ));
+    assert!(usage_should_auto_poll(
+        Some(Duration::from_secs(301)),
+        interval,
+        0
+    ));
 }
 
 #[test]
 fn auto_poll_backs_off_after_consecutive_no_limit_results() {
     let interval = Duration::from_secs(300);
     // One no-limit result: still polling.
-    assert!(usage_should_auto_poll(Some(interval), interval, USAGE_NO_LIMIT_BACKOFF - 1));
+    assert!(usage_should_auto_poll(
+        Some(interval),
+        interval,
+        USAGE_NO_LIMIT_BACKOFF - 1
+    ));
     // Reached the back-off threshold: auto-poll stops even though interval passed.
-    assert!(!usage_should_auto_poll(Some(interval), interval, USAGE_NO_LIMIT_BACKOFF));
-    assert!(!usage_should_auto_poll(None, interval, USAGE_NO_LIMIT_BACKOFF));
+    assert!(!usage_should_auto_poll(
+        Some(interval),
+        interval,
+        USAGE_NO_LIMIT_BACKOFF
+    ));
+    assert!(!usage_should_auto_poll(
+        None,
+        interval,
+        USAGE_NO_LIMIT_BACKOFF
+    ));
 }
 
 // ─────────────────────────── usage_manual_allowed ────────────────────────────
@@ -192,9 +219,15 @@ fn manual_allowed_when_no_prior_fetch() {
 #[test]
 fn manual_throttled_within_min_gap_allowed_after() {
     let gap = Duration::from_secs(30);
-    assert!(!usage_manual_allowed(Some(Duration::from_secs(5)), gap), "rapid re-click dropped");
+    assert!(
+        !usage_manual_allowed(Some(Duration::from_secs(5)), gap),
+        "rapid re-click dropped"
+    );
     assert!(!usage_manual_allowed(Some(Duration::from_secs(29)), gap));
-    assert!(usage_manual_allowed(Some(Duration::from_secs(30)), gap), "allowed at the gap");
+    assert!(
+        usage_manual_allowed(Some(Duration::from_secs(30)), gap),
+        "allowed at the gap"
+    );
     assert!(usage_manual_allowed(Some(Duration::from_secs(60)), gap));
 }
 
@@ -228,6 +261,10 @@ fn fetch_ok_none_clears_payload_and_increments_streak() {
 fn fetch_err_keeps_previous_payload_and_streak() {
     // Transient failure must NOT blank a good card and must NOT count as no-limits.
     let (payload, streak) = apply_usage_fetch(Some(sample()), 0, Err(()));
-    assert_eq!(payload, Some(sample()), "transient error preserves last good values");
+    assert_eq!(
+        payload,
+        Some(sample()),
+        "transient error preserves last good values"
+    );
     assert_eq!(streak, 0, "an error is not a no-limits signal");
 }

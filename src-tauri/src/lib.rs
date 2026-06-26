@@ -18,8 +18,8 @@ use std::time::{Duration, Instant};
 use std::os::unix::fs::PermissionsExt;
 
 use serde::Serialize;
+use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::Emitter;
-
 use tauri::Manager;
 
 use crate::session::{ContextClient, UsageClient};
@@ -505,11 +505,8 @@ fn watch_event_log(app: tauri::AppHandle, usage_refresh_requested: Arc<Mutex<boo
 
         // 1. Drain: take any result that the background thread wrote.
         if let Some(outcome) = usage_result.lock().unwrap().take() {
-            let (p, s) = session::apply_usage_fetch(
-                usage_payload.take(),
-                usage_no_limit_streak,
-                outcome,
-            );
+            let (p, s) =
+                session::apply_usage_fetch(usage_payload.take(), usage_no_limit_streak, outcome);
             usage_payload = p;
             usage_no_limit_streak = s;
         }
@@ -527,8 +524,7 @@ fn watch_event_log(app: tauri::AppHandle, usage_refresh_requested: Arc<Mutex<boo
             *g = false;
             m
         };
-        let do_fetch = (manual
-            && session::usage_manual_allowed(elapsed, Duration::from_secs(30)))
+        let do_fetch = (manual && session::usage_manual_allowed(elapsed, Duration::from_secs(30)))
             || session::usage_should_auto_poll(elapsed, interval, usage_no_limit_streak);
 
         // 3. Spawn fetch if needed and not already in-flight.
@@ -620,6 +616,27 @@ fn watch_event_log(app: tauri::AppHandle, usage_refresh_requested: Arc<Mutex<boo
 fn refresh_usage(state: tauri::State<UsageRefreshFlag>) {
     *state.0.lock().unwrap() = true;
 }
+
+/// Show the native context menu at the cursor position. The menu is built once
+/// in setup; this command just pops it via the Tauri window.
+#[tauri::command]
+fn show_context_menu(app: tauri::AppHandle, window: tauri::Window) {
+    let state = app.state::<NativeCtxMenu>();
+    let _ = window.popup_menu(&state.0);
+}
+
+/// Open (or focus) the settings window. The window is declared in tauri.conf.json
+/// with visible=false; the first call shows it, subsequent calls focus it.
+#[tauri::command]
+fn open_settings_window(app: tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("settings") {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+/// Stored native context menu, built once in setup and popped on right-click.
+struct NativeCtxMenu(tauri::menu::Menu<tauri::Wry>);
 
 #[tauri::command]
 fn get_settings() -> settings::Settings {
@@ -729,9 +746,38 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
-            let handle = app.handle().clone();
-            let flag: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
+            // Build the native right-click menu (replaces the clipped HTML menu).
+            let menu = MenuBuilder::new(app)
+                .item(&MenuItemBuilder::with_id("refresh", "Refresh usage").build(app)?)
+                .item(&MenuItemBuilder::with_id("settings", "Settings").build(app)?)
+                .separator()
+                .item(&MenuItemBuilder::with_id("quit", "Quit").build(app)?)
+                .build()?;
+            app.manage(NativeCtxMenu(menu));
+
+            // Handle native menu clicks.
+            let flag = Arc::new(Mutex::new(false));
             app.manage(UsageRefreshFlag(flag.clone()));
+
+            app.on_menu_event(move |app, event| match event.id().as_ref() {
+                "refresh" => {
+                    let _ = app
+                        .state::<UsageRefreshFlag>()
+                        .0
+                        .lock()
+                        .map(|mut g| *g = true);
+                }
+                "settings" => {
+                    if let Some(w) = app.get_webview_window("settings") {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                }
+                "quit" => app.exit(0),
+                _ => {}
+            });
+
+            let handle = app.handle().clone();
             std::thread::spawn(move || watch_event_log(handle, flag));
             Ok(())
         })
@@ -743,7 +789,9 @@ pub fn run() {
             install_hooks,
             uninstall_hooks,
             hooks_status,
-            refresh_usage
+            refresh_usage,
+            show_context_menu,
+            open_settings_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

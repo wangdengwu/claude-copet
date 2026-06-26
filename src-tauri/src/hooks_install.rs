@@ -7,12 +7,12 @@ use serde_json::{json, Value};
 // The six Claude Code hook events we register, and whether each needs the
 // `"matcher": "*"` field (true for PreToolUse / PostToolUse).
 const HOOK_EVENTS: &[(&str, bool)] = &[
-    ("SessionStart",     false),
+    ("SessionStart", false),
     ("UserPromptSubmit", false),
-    ("PreToolUse",       true),
-    ("PostToolUse",      true),
-    ("Stop",             false),
-    ("Notification",     false),
+    ("PreToolUse", true),
+    ("PostToolUse", true),
+    ("Stop", false),
+    ("Notification", false),
 ];
 
 /// Sentinel string embedded in every entry we own; used for both install-check
@@ -49,9 +49,7 @@ pub fn merge_copet_hooks(mut settings: Value, script_path: &str) -> Value {
 
     for &(event, needs_matcher) in HOOK_EVENTS {
         // Ensure the event array exists.
-        let event_arr = hooks_obj
-            .entry(event)
-            .or_insert_with(|| json!([]));
+        let event_arr = hooks_obj.entry(event).or_insert_with(|| json!([]));
 
         // Skip if we are already present (idempotency).
         if let Some(arr) = event_arr.as_array() {
@@ -82,10 +80,7 @@ pub fn merge_copet_hooks(mut settings: Value, script_path: &str) -> Value {
 /// as empty arrays (preserves round-trip fidelity for tooling that may rely on
 /// the key being present).
 pub fn remove_copet_hooks(mut settings: Value) -> Value {
-    let Some(hooks_obj) = settings
-        .get_mut("hooks")
-        .and_then(|v| v.as_object_mut())
-    else {
+    let Some(hooks_obj) = settings.get_mut("hooks").and_then(|v| v.as_object_mut()) else {
         return settings; // nothing to do
     };
 

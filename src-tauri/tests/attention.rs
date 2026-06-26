@@ -35,9 +35,18 @@ fn attention_set_and_cleared_across_a_sequence() {
 
 #[test]
 fn unrelated_event_leaves_flag_unchanged() {
-    assert!(attention_step(true, &ev("PostToolUse", Some("Bash"))), "set flag stays set");
-    assert!(!attention_step(false, &ev("PostToolUse", Some("Bash"))), "clear flag stays clear");
-    assert!(attention_step(true, &ev("SessionStart", None)), "SessionStart doesn't clear");
+    assert!(
+        attention_step(true, &ev("PostToolUse", Some("Bash"))),
+        "set flag stays set"
+    );
+    assert!(
+        !attention_step(false, &ev("PostToolUse", Some("Bash"))),
+        "clear flag stays clear"
+    );
+    assert!(
+        attention_step(true, &ev("SessionStart", None)),
+        "SessionStart doesn't clear"
+    );
 }
 
 // ─────────────────────────── activity_label ──────────────────────────────────
@@ -51,12 +60,19 @@ fn running_tool_label() {
 #[test]
 fn idle_or_quiet_moods_are_idle() {
     assert_eq!(activity_label(Mood::Idle, None), "Idle");
-    assert_eq!(activity_label(Mood::Idle, Some("Bash")), "Idle", "idle wins over a stale tool");
+    assert_eq!(
+        activity_label(Mood::Idle, Some("Bash")),
+        "Idle",
+        "idle wins over a stale tool"
+    );
     assert_eq!(activity_label(Mood::Sleep, Some("Bash")), "Idle");
 }
 
 #[test]
 fn working_without_a_known_tool_is_non_empty() {
     let label = activity_label(Mood::Work, None);
-    assert!(!label.is_empty(), "an active mood must still produce a label");
+    assert!(
+        !label.is_empty(),
+        "an active mood must still produce a label"
+    );
 }

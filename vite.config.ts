@@ -8,6 +8,14 @@ export default defineConfig({
     strictPort: true,
     watch: { ignored: ["**/src-tauri/**"] },
   },
+  build: {
+    rollupOptions: {
+      input: {
+        main: "index.html",
+        settings: "settings.html",
+      },
+    },
+  },
   test: {
     // animationForMood is a pure function with no DOM dependency.
     environment: "node",

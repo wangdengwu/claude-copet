@@ -16,7 +16,9 @@ const SCRIPT: &str = "/home/user/.claude-copet/claude-copet-hook.sh";
 fn merge_adds_all_six_events() {
     let settings = merge_copet_hooks(json!({}), SCRIPT);
 
-    let hooks = settings["hooks"].as_object().expect("hooks must be an object");
+    let hooks = settings["hooks"]
+        .as_object()
+        .expect("hooks must be an object");
 
     for event in &[
         "SessionStart",
@@ -26,7 +28,9 @@ fn merge_adds_all_six_events() {
         "Stop",
         "Notification",
     ] {
-        let arr = hooks[*event].as_array().expect("event key must be an array");
+        let arr = hooks[*event]
+            .as_array()
+            .expect("event key must be an array");
         assert!(
             !arr.is_empty(),
             "event {} must have at least one entry after merge",
@@ -46,7 +50,11 @@ fn merge_adds_all_six_events() {
                     })
                 })
         });
-        assert!(has_our_hook, "event {} must contain claude-copet-hook.sh command", event);
+        assert!(
+            has_our_hook,
+            "event {} must contain claude-copet-hook.sh command",
+            event
+        );
     }
 }
 
@@ -161,7 +169,10 @@ fn remove_deletes_only_ours() {
                 })
             })
     });
-    assert!(our_hook_gone, "our hook must be removed after remove_copet_hooks");
+    assert!(
+        our_hook_gone,
+        "our hook must be removed after remove_copet_hooks"
+    );
 
     // The user's hook is still there.
     let user_hook_remains = session_start.iter().any(|entry| {

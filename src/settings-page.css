@@ -1,0 +1,82 @@
+/* Standalone settings window — compact, readable, no card/pet chrome. */
+
+:root {
+  background: #1a1a1e;
+  color: #ccc;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+}
+
+.settings-panel {
+  padding: 10px 14px;
+}
+
+.s-header {
+  margin-bottom: 8px;
+}
+
+.s-title {
+  font-size: 11px;
+  color: #7ec;
+  font-weight: bold;
+}
+
+.s-section {
+  margin-bottom: 10px;
+}
+
+.s-section-title {
+  font-weight: bold;
+  margin-bottom: 4px;
+  color: #eee;
+}
+
+.s-status {
+  margin-bottom: 4px;
+  font-size: 11px;
+}
+
+.s-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.s-btn {
+  flex: 1;
+  background: #333;
+  color: #ccc;
+  border: 1px solid #555;
+  padding: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.s-btn:hover {
+  background: #444;
+}
+
+.s-note {
+  font-size: 10px;
+  color: #999;
+}
+
+.s-label {
+  font-size: 11px;
+}
+
+.s-select {
+  background: #333;
+  color: #ccc;
+  border: 1px solid #555;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 2px 4px;
+}
