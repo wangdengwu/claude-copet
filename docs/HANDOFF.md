@@ -1,5 +1,45 @@
 # Handoff — claude-copet
 
+> ## Session handoff — 2026-06-26 (current state)
+>
+> **All 8 slices implemented, merged to `main`, and pushed.** Repo:
+> https://github.com/wangdengwu/claude-copet (public). `main` is clean; **cargo 52
+> tests + vitest green**; `cargo build` + `pnpm build` clean.
+>
+> ### What's built (slices 1–8)
+> 1. Tauri idle-pet shell (frameless/transparent/always-on-top) + `animationForMood`
+> 2. Perception pipe: Claude Code hooks → `~/.claude-copet/events.jsonl` → Rust watcher → mood → sprite
+> 3. Mood state machine + decay + `TemplateSpeaker`
+> 4. Growth: XP / level / evolution stage + persistence (`~/.claude-copet/state.json`)
+> 5. Optional AI-written lines: `LlmClient` seam — **default `claude-cli`** (reuses
+>    local Claude Code login, no key) / `anthropic` (API key); de-sensitized summary; cooldown
+> 6. Interactions: drag + position memory (`tauri-plugin-window-state`), click-to-pet (Happy), right-click menu
+> 7. Release pipeline: `.github/workflows/release.yml` (tauri-action, `v*` tags → draft Release, 3 OSes)
+> 8. One-click **Connect to Claude Code** (auto-install hooks; `hooks_install.rs` pure merge/remove/detect)
+>
+> ### Key files
+> - Rust core: `src-tauri/src/lib.rs` (watcher loop + Tauri commands + builder), `speaker.rs`
+>   (`Speaker`/`LlmClient`/`ClaudeCliClient`/`AnthropicClient`/`build_summary`/`is_special_moment`),
+>   `growth.rs`, `mood.rs`, `events.rs`, `settings.rs`, `hooks_install.rs`
+> - Frontend: `src/main.ts` (render loop + listeners + drag/click/menu), `src/settings.ts`
+>   (panel: AI-written-lines toggle, provider, key, **Claude Code Connect/Disconnect**), `render.ts`, `sprites.ts`, `bubble.ts`
+> - Capabilities: `src-tauri/capabilities/default.json` (needs `core:window:allow-start-dragging` + `allow-close`)
+> - Docs: `docs/llm.md`, `docs/hooks.md`, `docs/release.md`; PRD at `docs/prds/…` (see its **Amendments**: LLM default changed to claude-cli); tasks in `tasks/2026-06-25-claude-code-desktop-pet/` (1–8 all `state: done`)
+>
+> ### Still pending (human / not code)
+> - **Visual acceptance** via `pnpm tauri dev`: drag, click→Happy, right-click menu, settings ✕/Esc/outside-close, one-click Connect.
+> - **End-to-end release**: push a `v0.1.0` tag and confirm Actions produces installers for all 3 OSes.
+> - **Known limits**: Windows hook command uses POSIX `sh` (needs git-bash; slice-8 out of scope); apps are unsigned (see `docs/release.md`).
+>
+> ### Conventions / how to run
+> - Run: `pnpm install` then `pnpm tauri dev`. Tests: `cargo test` in `src-tauri/`, `pnpm test` for vitest.
+> - Workflow: weee:dev two-role TDD via subagents; one branch per slice, `--no-ff` merge, delete branch. `.weee/` is gitignored (local ledger at `.weee/progress.md`).
+> - Settings + state live under `~/.claude-copet/` (outside the repo); API keys never committed.
+>
+> ---
+
+## Original handoff (planning → implementation)
+
 Planning is done (discuss → PRD → tasks). This doc is the bridge into implementation.
 Read this, then pick up slice 1.
 
