@@ -1,29 +1,21 @@
-//! Persisted user settings for the pet (slice 5). Stored in
-//! `$HOME/.claude-copet/settings.json` — outside the repo so the API key
-//! is never committed.
+//! Persisted user settings. Stored in `$HOME/.claude-copet/settings.json`.
+//!
+//! The HUD product no longer configures an LLM voice, so this struct currently
+//! carries no fields — `get_settings` / `set_settings` are kept as stable seams
+//! for future preferences. Unknown keys in an existing file (e.g. an old install's
+//! `llm_enabled` / `api_key`) are ignored on load.
 
 use std::fs;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Settings {
-    pub llm_enabled: bool,
-    pub provider: String,
-    pub model: String,
-    /// API key stored locally; never committed. Empty string means "not set".
-    pub api_key: String,
-}
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Settings {}
 
 impl Settings {
     pub fn default() -> Self {
-        Settings {
-            llm_enabled: false,
-            provider: "claude-cli".to_string(),
-            model: "claude-haiku-4-5".to_string(),
-            api_key: String::new(),
-        }
+        Settings {}
     }
 
     /// Load settings from an explicit path (useful for tests / DI).
@@ -44,17 +36,5 @@ impl Settings {
         }
         let json = serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?;
         fs::write(path, json).map_err(|e| e.to_string())
-    }
-
-    /// Resolve the active API key:
-    /// 1. `self.api_key` if non-empty (after trimming whitespace).
-    /// 2. `env_key` parameter (caller injects; avoids global env side-effects in tests).
-    /// 3. `None`.
-    pub fn resolve_api_key(&self, env_key: Option<&str>) -> Option<String> {
-        let trimmed = self.api_key.trim();
-        if !trimmed.is_empty() {
-            return Some(trimmed.to_string());
-        }
-        env_key.map(|s| s.to_string())
     }
 }

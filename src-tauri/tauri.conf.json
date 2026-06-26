@@ -16,7 +16,7 @@
         "label": "pet",
         "title": "claude-copet",
         "width": 320,
-        "height": 320,
+        "height": 96,
         "resizable": false,
         "decorations": false,
         "transparent": true,

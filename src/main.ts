@@ -1,20 +1,22 @@
 import { listen } from "@tauri-apps/api/event";
 import { animationForMood } from "./animation";
-import type { Mood, Stage } from "./animation";
+import type { Mood } from "./animation";
 import { SHEETS } from "./sprites";
 import { startRenderLoop } from "./render";
 import { createBubble } from "./bubble";
 import { mountSettingsPanel, openSettings } from "./settings";
 
+const card = document.getElementById("card") as HTMLElement;
 const canvas = document.getElementById("pet") as HTMLCanvasElement;
 const bubble = createBubble(document.getElementById("bubble") as HTMLElement);
 
+// The pet canvas is a fixed box on the left of the card; size its backing store
+// to the element's own box (× dpr) so the sprite stays crisp.
 function sizeCanvas(): void {
   const dpr = window.devicePixelRatio || 1;
-  canvas.width = window.innerWidth * dpr;
-  canvas.height = window.innerHeight * dpr;
-  canvas.style.width = `${window.innerWidth}px`;
-  canvas.style.height = `${window.innerHeight}px`;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = Math.max(1, Math.round(rect.width * dpr));
+  canvas.height = Math.max(1, Math.round(rect.height * dpr));
 }
 
 sizeCanvas();
@@ -25,23 +27,6 @@ mountSettingsPanel(document.body);
 
 // Start idle; the Rust core emits "mood" as events flow in from Claude Code.
 const controller = startRenderLoop(canvas, SHEETS.idle);
-let currentStage: Stage = "egg";
-
-// ─── Pet state (slice 4 daily stats) ────────────────────────────────────────
-
-interface DailyStats {
-  sessions: number;
-  tool_calls: number;
-  turns: number;
-  errors: number;
-}
-
-interface PetStatePayload {
-  daily_stats?: Record<string, DailyStats>;
-  [key: string]: unknown;
-}
-
-let latestPetState: PetStatePayload | null = null;
 
 // listen rejects when no Tauri runtime is present (e.g. plain `vite` in a browser);
 // swallow it so the pet still renders idle outside the app shell.
@@ -52,27 +37,12 @@ listen<Mood>("mood", (event) => {
   /* not running inside Tauri — stay idle */
 });
 
-// The Rust speaker emits a handwritten line on mood entry; show it in the bubble.
+// The speech bubble is an optional surface, off by default for the HUD product.
+// Kept wired so a future build can emit "speech" again without frontend changes.
 listen<string>("speech", (event) => {
   bubble.show(event.payload);
 }).catch(() => {
   /* not running inside Tauri — no speech */
-});
-
-// Growth: the Rust core emits the full pet state on startup and stage on evolution.
-listen<Stage>("stage", (event) => {
-  currentStage = event.payload;
-  console.log(`[copet] stage → ${currentStage}`);
-}).catch(() => {
-  /* not running inside Tauri */
-});
-
-// pet_state carries the full { pet, daily_stats, cursor } on load.
-listen<PetStatePayload>("pet_state", (event) => {
-  latestPetState = event.payload;
-  console.log("[copet] pet state loaded", event.payload);
-}).catch(() => {
-  /* not running inside Tauri */
 });
 
 // ─── Safe Tauri invoke ───────────────────────────────────────────────────────
@@ -87,24 +57,26 @@ async function invokeOrNull<T>(cmd: string, args?: unknown): Promise<T | null> {
 }
 
 // ─── Drag + click-to-pet ─────────────────────────────────────────────────────
-// The window is frameless; we detect pointer movement to distinguish a drag
-// from a click. A drag starts the OS window move via startDragging().
-// A click (no appreciable movement) invokes pet_clicked on the Rust side.
+// The window is frameless; the whole card is the drag surface. We detect pointer
+// movement to distinguish a drag from a click. A drag starts the OS window move
+// via startDragging(); a click on the pet invokes pet_clicked on the Rust side.
 
 const DRAG_THRESHOLD_PX = 5;
 
 let pointerDownX = 0;
 let pointerDownY = 0;
+let downTarget: EventTarget | null = null;
 let dragging = false;
 
-canvas.addEventListener("mousedown", (e) => {
+card.addEventListener("mousedown", (e) => {
   if (e.button !== 0) return; // only primary button
   pointerDownX = e.clientX;
   pointerDownY = e.clientY;
+  downTarget = e.target;
   dragging = false;
 });
 
-canvas.addEventListener("mousemove", async (e) => {
+card.addEventListener("mousemove", async (e) => {
   if (e.buttons !== 1) return; // primary button must be held
   if (dragging) return;
   const dx = e.clientX - pointerDownX;
@@ -120,10 +92,10 @@ canvas.addEventListener("mousemove", async (e) => {
   }
 });
 
-canvas.addEventListener("mouseup", async (e) => {
+card.addEventListener("mouseup", async (e) => {
   if (e.button !== 0) return;
-  if (!dragging) {
-    // It's a click — tell Rust to emit Happy + speech.
+  // A click (no drag) on the pet itself emits Happy + speech.
+  if (!dragging && downTarget === canvas) {
     await invokeOrNull("pet_clicked");
   }
   dragging = false;
@@ -151,13 +123,8 @@ function makeItem(label: string, onClick: () => void): HTMLDivElement {
   return item;
 }
 
-// "Settings" — always present (slice 5 is built).
 const settingsItem = makeItem("Settings", () => openSettings());
 
-// "Today's stats" overlay — always present (slice 4 is built).
-const statsItem = makeItem("Today's stats", () => showStats());
-
-// "Quit" — always present.
 const quitItem = makeItem("Quit", async () => {
   try {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -169,7 +136,6 @@ const quitItem = makeItem("Quit", async () => {
 });
 
 ctxMenu.appendChild(settingsItem);
-ctxMenu.appendChild(statsItem);
 ctxMenu.appendChild(quitItem);
 document.body.appendChild(ctxMenu);
 
@@ -183,7 +149,7 @@ function hideCtxMenu(): void {
   ctxMenu.style.display = "none";
 }
 
-canvas.addEventListener("contextmenu", (e) => {
+card.addEventListener("contextmenu", (e) => {
   e.preventDefault();
   showCtxMenu(e.clientX, e.clientY);
 });
@@ -197,56 +163,3 @@ document.addEventListener("mousedown", (e) => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") hideCtxMenu();
 });
-
-// ─── Today's stats overlay ───────────────────────────────────────────────────
-
-const statsOverlay = document.createElement("div");
-statsOverlay.id = "stats-overlay";
-statsOverlay.style.cssText = [
-  "position:fixed;top:8px;left:8px;background:rgba(0,0,0,0.8);",
-  "color:#eee;font-family:monospace;font-size:11px;padding:8px;",
-  "border-radius:4px;display:none;z-index:150;min-width:140px;",
-].join("");
-document.body.appendChild(statsOverlay);
-
-function showStats(): void {
-  const today = todayString();
-  const stats = latestPetState?.daily_stats?.[today];
-
-  if (!stats) {
-    statsOverlay.innerHTML = `<b>Today's stats</b><br>No data yet.`;
-  } else {
-    statsOverlay.innerHTML = [
-      `<b>Today's stats</b>`,
-      `Sessions:   ${stats.sessions}`,
-      `Tool calls: ${stats.tool_calls}`,
-      `Turns:      ${stats.turns}`,
-      `Errors:     ${stats.errors}`,
-    ].join("<br>");
-  }
-
-  statsOverlay.style.display = "block";
-
-  // Auto-hide after 4 seconds.
-  setTimeout(() => { statsOverlay.style.display = "none"; }, 4000);
-}
-
-// Close stats overlay on outside click.
-document.addEventListener("mousedown", (e) => {
-  if (
-    statsOverlay.style.display !== "none" &&
-    !statsOverlay.contains(e.target as Node)
-  ) {
-    statsOverlay.style.display = "none";
-  }
-});
-
-// ─── Tiny date helper (no chrono dep) ────────────────────────────────────────
-// Mirrors the Rust today_string() — YYYY-MM-DD in UTC.
-function todayString(): string {
-  const d = new Date();
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}

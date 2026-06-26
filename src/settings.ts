@@ -1,13 +1,6 @@
-// Settings panel for toggling LLM, selecting provider, and storing the API key.
-// Calls Tauri commands get_settings / set_settings; guards invoke so plain
-// `vite dev` (no Tauri runtime) does not crash.
-
-interface Settings {
-  llm_enabled: boolean;
-  provider: string;
-  model: string;
-  api_key: string;
-}
+// Settings panel. For the HUD product this is just the Claude Code
+// Connect / Disconnect controls (install / remove the perception hooks).
+// Guards invoke so plain `vite dev` (no Tauri runtime) does not crash.
 
 async function invokeOrNull<T>(cmd: string, args?: unknown): Promise<T | null> {
   try {
@@ -41,29 +34,6 @@ export function mountSettingsPanel(container: HTMLElement): void {
       <button id="s-close" title="Close (Esc)"
         style="background:none;border:none;color:#eee;font-family:monospace;font-size:13px;line-height:1;cursor:pointer;padding:0 2px">✕</button>
     </div>
-    <label style="display:flex;align-items:center;gap:4px;margin-bottom:4px"
-      title="Use an LLM to write occasional special-moment lines (text in the speech bubble — not audio/voice). Default: your local Claude Code, no API key.">
-      <input type="checkbox" id="s-llm-enabled"> AI-written lines
-    </label>
-    <label style="display:block;margin-bottom:4px">
-      Provider
-      <select id="s-provider"
-        style="width:100%;box-sizing:border-box;margin-top:2px;background:#222;color:#eee;border:1px solid #555;padding:2px">
-        <option value="claude-cli">claude-cli (uses local Claude Code login — no key)</option>
-        <option value="anthropic">anthropic (API key)</option>
-      </select>
-    </label>
-    <label style="display:block;margin-bottom:4px">
-      API Key
-      <input id="s-api-key" type="password" placeholder="(stored locally)"
-        style="width:100%;box-sizing:border-box;margin-top:2px;background:#222;color:#eee;border:1px solid #555;padding:2px">
-    </label>
-    <button id="s-save"
-      style="width:100%;background:#444;color:#eee;border:1px solid #666;padding:3px;cursor:pointer">
-      Save
-    </button>
-    <div id="s-status" style="margin-top:4px;font-size:10px;color:#aaa"></div>
-    <hr style="border:none;border-top:1px solid #444;margin:6px 0">
     <div style="font-weight:bold;margin-bottom:4px">Claude Code</div>
     <div id="s-hook-status" style="margin-bottom:4px;font-size:10px"></div>
     <div style="display:flex;gap:4px;margin-bottom:4px">
@@ -81,11 +51,6 @@ export function mountSettingsPanel(container: HTMLElement): void {
 
   container.appendChild(panel);
 
-  const chkEnabled = panel.querySelector<HTMLInputElement>("#s-llm-enabled")!;
-  const inpProvider = panel.querySelector<HTMLSelectElement>("#s-provider")!;
-  const inpApiKey = panel.querySelector<HTMLInputElement>("#s-api-key")!;
-  const btnSave = panel.querySelector<HTMLButtonElement>("#s-save")!;
-  const statusEl = panel.querySelector<HTMLElement>("#s-status")!;
   const hookStatusEl = panel.querySelector<HTMLElement>("#s-hook-status")!;
   const btnConnect = panel.querySelector<HTMLButtonElement>("#s-connect")!;
   const btnDisconnect = panel.querySelector<HTMLButtonElement>("#s-disconnect")!;
@@ -125,36 +90,6 @@ export function mountSettingsPanel(container: HTMLElement): void {
     setTimeout(() => { hookNoteEl.textContent = ""; }, 4000);
   });
 
-  // Load current settings when the panel first becomes visible.
-  async function loadSettings(): Promise<void> {
-    const s = await invokeOrNull<Settings>("get_settings");
-    if (!s) return;
-    chkEnabled.checked = s.llm_enabled;
-    inpProvider.value = s.provider;
-    // Never pre-fill the key field — let the user re-enter.
-    inpApiKey.placeholder = s.api_key ? "(key stored)" : "(not set)";
-    await refreshHookStatus();
-  }
-
-  btnSave.addEventListener("click", async () => {
-    const current = await invokeOrNull<Settings>("get_settings");
-    const model = current?.model ?? "claude-haiku-4-5";
-
-    const s: Settings = {
-      llm_enabled: chkEnabled.checked,
-      provider: inpProvider.value || "claude-cli",
-      model,
-      // Only update the key if the user typed something; preserve existing otherwise.
-      api_key: inpApiKey.value.trim()
-        ? inpApiKey.value.trim()
-        : (current?.api_key ?? ""),
-    };
-
-    const ok = await invokeOrNull<null>("set_settings", { s });
-    statusEl.textContent = ok !== null ? "Saved." : "Saved (offline mode).";
-    setTimeout(() => { statusEl.textContent = ""; }, 2000);
-  });
-
   // Toggle visibility via a small gear button.
   const toggle = document.createElement("button");
   toggle.textContent = "gear";
@@ -169,7 +104,7 @@ export function mountSettingsPanel(container: HTMLElement): void {
     if (panel.style.display === "none") {
       panel.style.display = "block";
       toggle.style.display = "none";
-      loadSettings();
+      refreshHookStatus();
     }
   }
 
@@ -192,8 +127,7 @@ export function mountSettingsPanel(container: HTMLElement): void {
   // Close when pressing OUTSIDE the panel. Use mousedown (not click): the
   // context-menu items already call e.stopPropagation() on their mousedown, so
   // the press that opens the panel never reaches this handler — only a genuine
-  // outside press closes it. (A click handler would still fire after the menu's
-  // mousedown and slam the panel shut.)
+  // outside press closes it.
   document.addEventListener("mousedown", (e) => {
     if (
       panel.style.display !== "none" &&
