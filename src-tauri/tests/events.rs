@@ -31,7 +31,23 @@ fn valid_jsonl_parses_to_events_and_advances_offset() {
     assert_eq!(events[1].tool.as_deref(), Some("Bash"));
     assert_eq!(events[1].session.as_deref(), Some("s1"));
 
+    // The new optional fields are absent on these lines → None (back-compat).
+    assert_eq!(events[0].cwd, None);
+    assert_eq!(events[0].transcript_path, None);
+
     assert_eq!(offset, expected_offset, "offset must equal buf.len() after consuming all complete lines");
+}
+
+// ── Behavior 1b: cwd / transcript_path are captured when present ──
+
+#[test]
+fn parse_captures_cwd_and_transcript_path_when_present() {
+    let line: &[u8] = b"{\"type\":\"PreToolUse\",\"tool\":\"Bash\",\"session\":\"s9\",\"cwd\":\"/Users/me/proj\",\"transcript_path\":\"/tmp/t.jsonl\"}\n";
+    let (events, _) = parse(line, 0);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].cwd.as_deref(), Some("/Users/me/proj"));
+    assert_eq!(events[0].transcript_path.as_deref(), Some("/tmp/t.jsonl"));
 }
 
 // ── Behavior 2: Malformed lines are skipped (not fatal); offset still advances past them ──
@@ -96,6 +112,8 @@ fn mood_for_event_mapping_matches_spec() {
         event_type: event_type.to_string(),
         tool: tool.map(|s| s.to_string()),
         session: None,
+        cwd: None,
+        transcript_path: None,
     };
 
     // SessionStart → Wake

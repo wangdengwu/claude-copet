@@ -8,6 +8,8 @@ fn make_event(event_type: &str) -> Event {
         event_type: event_type.to_string(),
         tool: None,
         session: None,
+        cwd: None,
+        transcript_path: None,
     }
 }
 

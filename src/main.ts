@@ -28,6 +28,31 @@ mountSettingsPanel(document.body);
 // Start idle; the Rust core emits "mood" as events flow in from Claude Code.
 const controller = startRenderLoop(canvas, SHEETS.idle);
 
+// ─── HUD info column ─────────────────────────────────────────────────────────
+// The Rust core emits a "hud" snapshot reflecting the most-recently-active
+// session. Slice 2 renders the session label (cwd basename); the full session
+// id shows on hover. Later slices add model / context % / activity rows.
+
+const hudInfo = document.getElementById("hud-info") as HTMLElement;
+
+const labelEl = document.createElement("div");
+labelEl.className = "hud-label";
+labelEl.textContent = "—";
+hudInfo.appendChild(labelEl);
+
+interface HudPayload {
+  sessionLabel: string;
+  sessionId: string;
+}
+
+listen<HudPayload>("hud", (event) => {
+  const { sessionLabel, sessionId } = event.payload;
+  labelEl.textContent = sessionLabel || "—";
+  labelEl.title = sessionId || "";
+}).catch(() => {
+  /* not running inside Tauri — no live session */
+});
+
 // listen rejects when no Tauri runtime is present (e.g. plain `vite` in a browser);
 // swallow it so the pet still renders idle outside the app shell.
 listen<Mood>("mood", (event) => {

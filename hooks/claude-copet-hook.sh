@@ -22,8 +22,10 @@ input=$(cat 2>/dev/null)
 
 tool=$(printf '%s' "$input" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
 session=$(printf '%s' "$input" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+cwd=$(printf '%s' "$input" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+transcript=$(printf '%s' "$input" | sed -n 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
 
-printf '{"ts":"%s","type":"%s","tool":"%s","session":"%s"}\n' \
-  "$ts" "$type" "$tool" "$session" >> "$log" 2>/dev/null
+printf '{"ts":"%s","type":"%s","tool":"%s","session":"%s","cwd":"%s","transcript_path":"%s"}\n' \
+  "$ts" "$type" "$tool" "$session" "$cwd" "$transcript" >> "$log" 2>/dev/null
 
 exit 0

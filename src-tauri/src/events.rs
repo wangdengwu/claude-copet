@@ -17,6 +17,12 @@ pub struct Event {
     pub tool: Option<String>,
     #[serde(default)]
     pub session: Option<String>,
+    /// The session's working directory (cwd basename becomes the HUD label).
+    #[serde(default)]
+    pub cwd: Option<String>,
+    /// Path to the session's transcript JSONL (read for context % + model).
+    #[serde(default)]
+    pub transcript_path: Option<String>,
 }
 
 /// Mood the frontend can show. Serializes to the lowercase string the TS `Mood`

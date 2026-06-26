@@ -5,6 +5,7 @@
 pub mod events;
 pub mod hooks_install;
 pub mod mood;
+pub mod session;
 pub mod settings;
 
 use std::fs;
@@ -14,7 +15,19 @@ use std::time::{Duration, Instant};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
+use serde::Serialize;
 use tauri::Emitter;
+
+/// The full HUD snapshot emitted to the frontend. Grows across slices
+/// (model / context % / activity / needs-human); slice 2 carries the session
+/// identity. Re-emitted on startup and whenever any field changes.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+struct HudSnapshot {
+    #[serde(rename = "sessionLabel")]
+    session_label: String,
+    #[serde(rename = "sessionId")]
+    session_id: String,
+}
 
 /// The event-log location, shared by the Claude Code hooks and this watcher.
 /// `$HOME/.claude-copet/events.jsonl` (`%USERPROFILE%` on Windows).
@@ -88,6 +101,14 @@ fn watch_event_log(app: tauri::AppHandle) {
     let mut mood_state = mood::MoodState::initial();
     let mut last = Instant::now();
 
+    // Active-session context: the session/cwd of the most-recently-consumed
+    // event owns the card. Emit an initial (empty) snapshot so the frontend
+    // renders a placeholder until the first event arrives.
+    let mut active_session: Option<String> = None;
+    let mut active_cwd: Option<String> = None;
+    let mut last_hud = HudSnapshot::default();
+    let _ = app.emit("hud", &last_hud);
+
     loop {
         std::thread::sleep(Duration::from_millis(250));
         let now = Instant::now();
@@ -103,6 +124,29 @@ fn watch_event_log(app: tauri::AppHandle) {
                 let (evs, new_offset) = events::parse(&bytes, mood_offset);
                 mood_offset = new_offset;
                 new_events = evs;
+            }
+        }
+
+        // ── Active session: the latest event carrying a session owns the card ──
+        if !new_events.is_empty() {
+            for ev in &new_events {
+                if let Some(s) = &ev.session {
+                    if !s.is_empty() {
+                        active_session = Some(s.clone());
+                        active_cwd = ev.cwd.clone();
+                    }
+                }
+            }
+            let hud = HudSnapshot {
+                session_label: active_cwd
+                    .as_deref()
+                    .map(session::session_label)
+                    .unwrap_or_default(),
+                session_id: active_session.clone().unwrap_or_default(),
+            };
+            if hud != last_hud {
+                let _ = app.emit("hud", &hud);
+                last_hud = hud;
             }
         }
 
