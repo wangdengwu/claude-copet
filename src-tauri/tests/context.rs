@@ -4,7 +4,7 @@
 
 use claude_copet_lib::session::{
     context_percent, context_window, latest_usage_and_model, model_changed,
-    model_friendly_name, parse_context_output, Usage,
+    model_friendly_name, parse_context_output, resolve_window, CachedContext, Usage,
 };
 
 fn assistant_line(model: &str, input: u64, cache_read: u64, cache_create: u64) -> String {
@@ -210,4 +210,47 @@ fn model_changed_false_when_same() {
 #[test]
 fn model_changed_true_when_different() {
     assert!(model_changed(Some("claude-opus-4-8"), "claude-sonnet-4-6"));
+}
+
+// ─────────────────────────── resolve_window ───────────────────────────────────
+
+#[test]
+fn resolve_uses_cached_window_when_present() {
+    // L1 cache hit — always use the cached window, no heuristic.
+    let w = resolve_window(Some(1_000_000), &usage(50_000, 0, 0), "claude-opus-4-8");
+    assert_eq!(w, 1_000_000, "cached window must be used directly");
+}
+
+#[test]
+fn resolve_l3_upgrades_when_usage_exceeds_default_window() {
+    // No cache, usage > 200k → L3 heuristic upgrades to 1M.
+    let w = resolve_window(None, &usage(2, 214_355, 891), "claude-opus-4-8");
+    assert_eq!(w, 1_000_000);
+}
+
+#[test]
+fn resolve_l3_stays_at_200k_when_usage_is_low() {
+    // No cache, usage < 200k → standard 200k window.
+    let w = resolve_window(None, &usage(50_000, 0, 0), "claude-opus-4-8");
+    assert_eq!(w, 200_000);
+}
+
+#[test]
+fn resolve_l3_respects_explicit_1m_in_model_id() {
+    // model_id contains [1m] → context_window returns 1M directly.
+    let w = resolve_window(None, &usage(50_000, 0, 0), "claude-opus-4-8[1m]");
+    assert_eq!(w, 1_000_000);
+}
+
+// ─────────────────────────── CachedContext ────────────────────────────────────
+
+#[test]
+fn cached_context_defaults() {
+    let c = CachedContext {
+        model_alias: "opus[1m]".into(),
+        window_size: 1_000_000,
+        last_transcript_model: "claude-opus-4-8".into(),
+    };
+    assert_eq!(c.window_size, 1_000_000);
+    assert_eq!(c.model_alias, "opus[1m]");
 }

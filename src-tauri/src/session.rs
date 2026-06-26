@@ -16,6 +16,28 @@ pub struct ContextInfo {
     pub window_size: u64,
 }
 
+/// Cached context information from `/context` command output. Populated by the
+/// watcher via `ContextClient`; the watcher reads these fields to compute
+/// context percent and display the model alias.
+pub struct CachedContext {
+    /// The model alias as reported by the context command (e.g. "deepseek-v4-pro[1m]").
+    pub model_alias: String,
+    /// The context window size in tokens (e.g. 1_000_000).
+    pub window_size: u64,
+    /// The canonical model id from the transcript at the time of the last
+    /// `/context` fetch. Used to detect when the transcript model has changed
+    /// since the last fetch, triggering a re-fetch.
+    pub last_transcript_model: String,
+}
+
+/// Abstraction over `claude -p --resume <id> "/context"` so the watcher can
+/// stay testable without calling the real CLI.
+pub trait ContextClient: Send + Sync {
+    /// Call `claude -p --resume <session_id> "/context"` and return raw stdout.
+    /// Returns `Err(())` on any failure (CLI missing, non-zero exit, etc.).
+    fn fetch_context(&self, session_id: &str) -> Result<String, ()>;
+}
+
 /// Fold one event into the needs-human attention flag.
 /// Set on `Notification` (permission/input wait) and `Stop` (turn finished —
 /// your turn); cleared on `UserPromptSubmit` and `PreToolUse` (work resumed);
@@ -109,6 +131,24 @@ pub fn context_window(model_id: &str) -> u64 {
         1_000_000
     } else {
         200_000
+    }
+}
+
+/// Resolve the context-window size: L1 (cached from `/context`) takes priority;
+/// L3 fallback uses `context_window` with the existing upgrade heuristic:
+/// if usage exceeds the default window and the window is under 1M, upgrade to 1M.
+pub fn resolve_window(cached_window: Option<u64>, usage: &Usage, model_id: &str) -> u64 {
+    if let Some(w) = cached_window {
+        return w;
+    }
+    let window = context_window(model_id);
+    let usage_sum = usage.input_tokens
+        + usage.cache_read_input_tokens
+        + usage.cache_creation_input_tokens;
+    if usage_sum > window && window < 1_000_000 {
+        1_000_000
+    } else {
+        window
     }
 }
 
