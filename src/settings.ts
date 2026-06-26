@@ -111,28 +111,17 @@ export function mountSettingsPanel(container: HTMLElement): void {
   ].join("");
   container.appendChild(toggle);
 
-  function onOutsideClick(e: MouseEvent): void {
-    if (!panel.contains(e.target as Node) && e.target !== toggle) {
-      closePanel();
-    }
-  }
-
   function openPanel(): void {
     if (panel.style.display === "none") {
       panel.style.display = "block";
       toggle.style.display = "none";
       loadSettings();
-      // Attach the outside-click closer on the NEXT tick, so the very click that
-      // opened the panel (e.g. the right-click menu's Settings item) doesn't
-      // immediately bubble into it and close the panel again.
-      setTimeout(() => document.addEventListener("click", onOutsideClick), 0);
     }
   }
 
   function closePanel(): void {
     panel.style.display = "none";
     toggle.style.display = "block";
-    document.removeEventListener("click", onOutsideClick);
   }
 
   // Wire the module-level export so the context menu can call openSettings().
@@ -144,5 +133,20 @@ export function mountSettingsPanel(container: HTMLElement): void {
   // Close on Escape.
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && panel.style.display !== "none") closePanel();
+  });
+
+  // Close when pressing OUTSIDE the panel. Use mousedown (not click): the
+  // context-menu items already call e.stopPropagation() on their mousedown, so
+  // the press that opens the panel never reaches this handler — only a genuine
+  // outside press closes it. (A click handler would still fire after the menu's
+  // mousedown and slam the panel shut.)
+  document.addEventListener("mousedown", (e) => {
+    if (
+      panel.style.display !== "none" &&
+      !panel.contains(e.target as Node) &&
+      e.target !== toggle
+    ) {
+      closePanel();
+    }
   });
 }
