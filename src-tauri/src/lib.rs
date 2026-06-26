@@ -104,6 +104,8 @@ impl session::ContextClient for ClaudeCliContextClient {
             .arg("text")
             .arg("/context")
             .current_dir(cwd)
+            // Tag as a probe so our hook skips it (no spurious session switch).
+            .env("CLAUDE_COPET_PROBE", "1")
             .output()
             .map_err(|_| ())?;
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -133,6 +135,8 @@ impl session::UsageClient for ClaudeCliUsageClient {
             .arg("--output-format")
             .arg("text")
             .arg("/usage")
+            // Tag as a probe so our hook skips it (no spurious session switch).
+            .env("CLAUDE_COPET_PROBE", "1")
             .output()
             .map_err(|_| ())?;
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();

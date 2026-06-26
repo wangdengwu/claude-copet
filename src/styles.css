@@ -146,12 +146,13 @@ body {
 }
 
 /* Usage limits block: two compact lines (5h / 7d) + refresh button. */
-/* One row, the two windows side by side with a generous gap so 5h and 7d read
-   as distinct groups. Refresh lives in the right-click menu — no inline button. */
+/* One row: 5h pushed to the left, 7d to the right (space-between) so the two
+   windows read as distinct groups. Refresh lives in the right-click menu. */
 .hud-usage {
   display: flex;
   align-items: baseline;
-  gap: 14px;
+  justify-content: space-between;
+  gap: 10px;
   font-size: 10px;
   line-height: 1.3;
   color: #9aa0aa;
@@ -163,10 +164,16 @@ body {
   flex: 0 0 auto;
 }
 
-/* Band colours for the usage lines, mirroring the context-bar palette. */
-.hud-usage-line[data-band="green"] { color: #4caf6a; }
-.hud-usage-line[data-band="amber"] { color: #e3a23c; }
-.hud-usage-line[data-band="red"]   { color: #e3553c; }
+/* The percent carries the band colour (mirrors the context-bar palette)… */
+.hud-usage-pct[data-band="green"] { color: #4caf6a; }
+.hud-usage-pct[data-band="amber"] { color: #e3a23c; }
+.hud-usage-pct[data-band="red"]   { color: #e3553c; }
+
+/* …while the countdown is dimmer and lighter, so it reads as secondary. */
+.hud-usage-cd {
+  color: #6b7079;
+  font-weight: 300;
+}
 
 /* Pixel speech bubble, centered above the sprite. Fades via opacity; the data-show
    attribute is toggled from JS. pointer-events:none so it never steals clicks. */

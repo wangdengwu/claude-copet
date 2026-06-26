@@ -11,6 +11,13 @@
 # Claude Code passes the hook payload as JSON on stdin; we best-effort pull
 # tool_name / session_id from it (no jq dependency).
 
+# Skip events from claude-copet's own headless probe invocations (e.g. the
+# `claude -p "/usage"` / "/context" calls the watcher spawns). They set this env
+# var; without this guard each probe would emit SessionStart/Stop under a fresh
+# session id and the HUD would switch its active session to the probe, blanking
+# the real session's model / context %.
+[ -n "$CLAUDE_COPET_PROBE" ] && exit 0
+
 type="$1"
 dir="$HOME/.claude-copet"
 log="$dir/events.jsonl"

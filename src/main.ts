@@ -70,11 +70,28 @@ const usageBlock = document.createElement("div");
 usageBlock.className = "hud-usage";
 usageBlock.style.display = "none";
 
-const fiveHourEl = document.createElement("span");
-fiveHourEl.className = "hud-usage-line";
-const sevenDayEl = document.createElement("span");
-sevenDayEl.className = "hud-usage-line";
-usageBlock.append(fiveHourEl, sevenDayEl);
+// Each window is a cell with a band-coloured percent + a dimmer/lighter
+// countdown, split from the formatted line at the ⏳ marker.
+function makeUsageCell(): { cell: HTMLElement; pct: HTMLElement; cd: HTMLElement } {
+  const cell = document.createElement("span");
+  cell.className = "hud-usage-line";
+  const pct = document.createElement("span");
+  pct.className = "hud-usage-pct";
+  const cd = document.createElement("span");
+  cd.className = "hud-usage-cd";
+  cell.append(pct, cd);
+  return { cell, pct, cd };
+}
+const fiveHour = makeUsageCell();
+const sevenDay = makeUsageCell();
+usageBlock.append(fiveHour.cell, sevenDay.cell);
+
+function setUsageCell(sub: { pct: HTMLElement; cd: HTMLElement }, view: { text: string; band: string }): void {
+  const i = view.text.indexOf("⏳");
+  sub.pct.textContent = i === -1 ? view.text : view.text.slice(0, i).trim();
+  sub.pct.dataset.band = view.band;
+  sub.cd.textContent = i === -1 ? "" : " " + view.text.slice(i);
+}
 
 hudInfo.append(topRow, barRow, activityRow, usageBlock);
 
@@ -90,10 +107,8 @@ function renderUsage(state: HudState): void {
     return;
   }
   usageBlock.style.display = "";
-  fiveHourEl.textContent = usage.fiveHour.text;
-  fiveHourEl.dataset.band = usage.fiveHour.band;
-  sevenDayEl.textContent = usage.sevenDay.text;
-  sevenDayEl.dataset.band = usage.sevenDay.band;
+  setUsageCell(fiveHour, usage.fiveHour);
+  setUsageCell(sevenDay, usage.sevenDay);
 }
 // Tick the countdown roughly once a minute (it shows minute granularity).
 setInterval(() => {
