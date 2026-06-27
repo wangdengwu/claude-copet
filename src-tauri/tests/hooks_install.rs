@@ -3,7 +3,8 @@
 // read from or write to the real ~/.claude or ~/.claude-copet directories.
 
 use claude_copet_lib::hooks_install::{
-    copet_hooks_installed, merge_copet_hooks, remove_copet_hooks, should_auto_install,
+    connection_menu_label, copet_hooks_installed, merge_copet_hooks, remove_copet_hooks,
+    should_auto_install,
 };
 use serde_json::json;
 
@@ -306,4 +307,14 @@ fn auto_install_only_when_not_opted_out_and_not_installed() {
         !should_auto_install(false, true),
         "must not auto-install when hooks are already present"
     );
+}
+
+// ── Behavior 8: connection_menu_label reflects current install state ──────────
+
+#[test]
+fn menu_label_reflects_connection_state() {
+    // Connected → the action offered is to disconnect.
+    assert_eq!(connection_menu_label(true), "Disconnect");
+    // Not connected → the action offered is to connect.
+    assert_eq!(connection_menu_label(false), "Connect");
 }
