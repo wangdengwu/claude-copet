@@ -124,3 +124,39 @@ fn out_of_range_interval_falls_back_to_default() {
     let zero = Settings::load_from(&path).expect("must load");
     assert_eq!(zero.effective_refresh_minutes(), 5);
 }
+
+// ─────────────────────────── hooks_opt_out ───────────────────────────────────
+
+/// A monitoring tool connects by default, so a fresh install must NOT be opted
+/// out: `hooks_opt_out` defaults to false.
+#[test]
+fn hooks_opt_out_defaults_to_false() {
+    assert!(!Settings::default().hooks_opt_out);
+}
+
+/// A legacy settings file with no `hooks_opt_out` key loads as not-opted-out, so
+/// existing installs auto-connect on the next launch.
+#[test]
+fn missing_hooks_opt_out_key_loads_false() {
+    let dir = TempDir::new().expect("temp dir");
+    let path = temp_settings_path(&dir);
+    std::fs::write(&path, br#"{"usage_refresh_minutes":10}"#).unwrap();
+    let loaded = Settings::load_from(&path).expect("must load");
+    assert!(
+        !loaded.hooks_opt_out,
+        "absent hooks_opt_out must load as false"
+    );
+}
+
+/// A deliberate opt-out (true) survives a save/load round-trip, so a menu-driven
+/// Disconnect stays sticky across restarts.
+#[test]
+fn hooks_opt_out_round_trips_true() {
+    let dir = TempDir::new().expect("temp dir");
+    let path = temp_settings_path(&dir);
+    let mut s = Settings::default();
+    s.hooks_opt_out = true;
+    s.save_to(&path).expect("save");
+    let loaded = Settings::load_from(&path).expect("load");
+    assert!(loaded.hooks_opt_out, "true opt-out must round-trip");
+}

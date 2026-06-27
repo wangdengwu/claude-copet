@@ -93,6 +93,22 @@ pub fn remove_copet_hooks(mut settings: Value) -> Value {
     settings
 }
 
+/// Returns `true` iff hooks should be auto-installed on startup: the user has
+/// not opted out AND the hooks are not already present.
+pub fn should_auto_install(opt_out: bool, installed: bool) -> bool {
+    !opt_out && !installed
+}
+
+/// Label for the right-click connect/disconnect toggle, given the current
+/// install state: "Disconnect" when connected, "Connect" when not.
+pub fn connection_menu_label(installed: bool) -> &'static str {
+    if installed {
+        "Disconnect"
+    } else {
+        "Connect"
+    }
+}
+
 /// True iff all six hook events have at least one entry referencing
 /// `claude-copet-hook.sh`.
 pub fn copet_hooks_installed(settings: &Value) -> bool {

@@ -32,11 +32,6 @@ root.innerHTML = `
   <div class="s-section">
     <div class="s-section-title">Claude Code</div>
     <div id="s-hook-status" class="s-status"></div>
-    <div class="s-row">
-      <button id="s-connect" class="s-btn">Connect</button>
-      <button id="s-disconnect" class="s-btn">Disconnect</button>
-    </div>
-    <div id="s-hook-note" class="s-note"></div>
   </div>
   <div class="s-section">
     <div class="s-section-title">Usage Refresh</div>
@@ -53,24 +48,7 @@ root.innerHTML = `
 `;
 
 const hookStatusEl = root.querySelector<HTMLElement>("#s-hook-status")!;
-const hookNoteEl = root.querySelector<HTMLElement>("#s-hook-note")!;
 const intervalEl = root.querySelector<HTMLSelectElement>("#s-interval")!;
-const btnConnect = root.querySelector<HTMLButtonElement>("#s-connect")!;
-const btnDisconnect = root.querySelector<HTMLButtonElement>("#s-disconnect")!;
-
-btnConnect.addEventListener("click", async () => {
-  const result = await invokeOrNull<null>("install_hooks");
-  hookNoteEl.textContent = result !== null ? "Restart Claude Code to apply." : "Could not install hooks (offline mode).";
-  await refreshHookStatus(hookStatusEl);
-  setTimeout(() => { hookNoteEl.textContent = ""; }, 4000);
-});
-
-btnDisconnect.addEventListener("click", async () => {
-  const result = await invokeOrNull<null>("uninstall_hooks");
-  hookNoteEl.textContent = result !== null ? "Restart Claude Code to apply." : "Could not remove hooks (offline mode).";
-  await refreshHookStatus(hookStatusEl);
-  setTimeout(() => { hookNoteEl.textContent = ""; }, 4000);
-});
 
 intervalEl.addEventListener("change", async () => {
   const minutes = Number(intervalEl.value);

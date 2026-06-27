@@ -638,6 +638,10 @@ fn open_settings_window(app: tauri::AppHandle) {
 /// Stored native context menu, built once in setup and popped on right-click.
 struct NativeCtxMenu(tauri::menu::Menu<tauri::Wry>);
 
+/// Handle to the connect/disconnect toggle menu item, so its label can be
+/// updated when the connection state changes.
+struct ConnToggleItem(tauri::menu::MenuItem<tauri::Wry>);
+
 #[tauri::command]
 fn get_settings() -> settings::Settings {
     settings_path()
@@ -732,6 +736,17 @@ fn hooks_status() -> bool {
     hooks_install::copet_hooks_installed(&settings)
 }
 
+/// Persist the sticky connect/disconnect opt-out flag in copet's own settings,
+/// so the menu choice survives restarts. Best-effort: a missing HOME or write
+/// failure is silently ignored (the menu still toggled the live hook state).
+fn set_hooks_opt_out(value: bool) {
+    if let Some(p) = settings_path() {
+        let mut s = settings::Settings::load_from(&p).unwrap_or_default();
+        s.hooks_opt_out = value;
+        let _ = s.save_to(&p);
+    }
+}
+
 // ─────────────────────────── entry point ─────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -746,14 +761,35 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            // Auto-install hooks on startup when not opted out and not already
+            // installed. Runs before the menu is built so the connect/disconnect
+            // toggle's initial label reflects the post-install state.
+            {
+                let opt_out = settings_path()
+                    .and_then(|p| settings::Settings::load_from(&p).ok())
+                    .map(|s| s.hooks_opt_out)
+                    .unwrap_or(false);
+                if hooks_install::should_auto_install(opt_out, hooks_status()) {
+                    let _ = install_hooks();
+                }
+            }
+
             // Build the native right-click menu (replaces the clipped HTML menu).
+            // The connect/disconnect toggle's label reflects current hook state.
+            let conn_item = MenuItemBuilder::with_id(
+                "conn_toggle",
+                hooks_install::connection_menu_label(hooks_status()),
+            )
+            .build(app)?;
             let menu = MenuBuilder::new(app)
                 .item(&MenuItemBuilder::with_id("refresh", "Refresh usage").build(app)?)
                 .item(&MenuItemBuilder::with_id("settings", "Settings").build(app)?)
+                .item(&conn_item)
                 .separator()
                 .item(&MenuItemBuilder::with_id("quit", "Quit").build(app)?)
                 .build()?;
             app.manage(NativeCtxMenu(menu));
+            app.manage(ConnToggleItem(conn_item));
 
             // Handle native menu clicks.
             let flag = Arc::new(Mutex::new(false));
@@ -772,6 +808,19 @@ pub fn run() {
                         let _ = w.show();
                         let _ = w.set_focus();
                     }
+                }
+                "conn_toggle" => {
+                    // Toggle on the actual current install state; persist the
+                    // opt-out flag so a Disconnect stays sticky across restarts.
+                    if hooks_status() {
+                        let _ = uninstall_hooks();
+                        set_hooks_opt_out(true);
+                    } else {
+                        set_hooks_opt_out(false);
+                        let _ = install_hooks();
+                    }
+                    let label = hooks_install::connection_menu_label(hooks_status());
+                    let _ = app.state::<ConnToggleItem>().0.set_text(label);
                 }
                 "quit" => app.exit(0),
                 _ => {}
