@@ -18,12 +18,17 @@ fn default_usage_refresh_minutes() -> u8 {
 pub struct Settings {
     #[serde(default = "default_usage_refresh_minutes")]
     pub usage_refresh_minutes: u8,
+    /// When `true`, the auto-connect-on-startup logic is skipped.
+    /// Defaults to `false` so fresh installs connect automatically.
+    #[serde(default)]
+    pub hooks_opt_out: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Settings {
             usage_refresh_minutes: 5,
+            hooks_opt_out: false,
         }
     }
 }

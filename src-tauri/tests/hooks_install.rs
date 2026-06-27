@@ -3,7 +3,7 @@
 // read from or write to the real ~/.claude or ~/.claude-copet directories.
 
 use claude_copet_lib::hooks_install::{
-    copet_hooks_installed, merge_copet_hooks, remove_copet_hooks,
+    copet_hooks_installed, merge_copet_hooks, remove_copet_hooks, should_auto_install,
 };
 use serde_json::json;
 
@@ -278,4 +278,32 @@ fn matcher_present_only_for_tool_events() {
             event
         );
     }
+}
+
+// ── Behavior 7: should_auto_install — auto-connect only when not opted out and ─
+// not already installed ──────────────────────────────────────────────────────
+
+#[test]
+fn auto_install_only_when_not_opted_out_and_not_installed() {
+    // The single "auto-connect" case: user has not opted out, hooks are absent.
+    assert!(
+        should_auto_install(false, false),
+        "must auto-install when not opted out and not installed"
+    );
+
+    // Opted out → never auto-install, regardless of install state (sticky disconnect).
+    assert!(
+        !should_auto_install(true, false),
+        "opt-out must suppress auto-install even when not installed"
+    );
+    assert!(
+        !should_auto_install(true, true),
+        "opt-out must suppress auto-install when already installed"
+    );
+
+    // Already installed → nothing to do (idempotent).
+    assert!(
+        !should_auto_install(false, true),
+        "must not auto-install when hooks are already present"
+    );
 }

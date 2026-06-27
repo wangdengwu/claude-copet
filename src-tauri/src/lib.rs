@@ -755,6 +755,26 @@ pub fn run() {
                 .build()?;
             app.manage(NativeCtxMenu(menu));
 
+            // Auto-install hooks on startup when not opted out and not already installed.
+            {
+                let startup_settings = settings_path()
+                    .and_then(|p| settings::Settings::load_from(&p).ok())
+                    .unwrap_or_else(settings::Settings::default);
+                let installed = claude_settings_path()
+                    .map(|p| {
+                        if !p.exists() {
+                            false
+                        } else {
+                            let val = read_json_or_empty(&p);
+                            hooks_install::copet_hooks_installed(&val)
+                        }
+                    })
+                    .unwrap_or(false);
+                if hooks_install::should_auto_install(startup_settings.hooks_opt_out, installed) {
+                    let _ = install_hooks();
+                }
+            }
+
             // Handle native menu clicks.
             let flag = Arc::new(Mutex::new(false));
             app.manage(UsageRefreshFlag(flag.clone()));
