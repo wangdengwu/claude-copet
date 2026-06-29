@@ -812,6 +812,17 @@ fn set_hooks_opt_out(value: bool) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Enforce a single running instance. Must be registered FIRST. When a
+        // second launch is attempted, this process keeps running and the new
+        // process exits after handing us its argv/cwd; we surface the existing
+        // pet HUD instead of spawning a duplicate.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("pet") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         // Persist only the window POSITION, never its size: the HUD card has a
         // fixed size from tauri.conf.json, and persisting size would let a stale
         // saved value (e.g. the old square 320×320) override the card dimensions.
