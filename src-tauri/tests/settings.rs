@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 use tempfile::TempDir;
 
+use claude_copet_lib::i18n::Locale;
 use claude_copet_lib::settings::Settings;
 
 fn temp_settings_path(dir: &TempDir) -> PathBuf {
@@ -159,4 +160,48 @@ fn hooks_opt_out_round_trips_true() {
     s.save_to(&path).expect("save");
     let loaded = Settings::load_from(&path).expect("load");
     assert!(loaded.hooks_opt_out, "true opt-out must round-trip");
+}
+
+// ─────────────────────────────── locale ──────────────────────────────────────
+
+/// A fresh install defaults to English, so the experience is predictable with no
+/// configuration.
+#[test]
+fn locale_defaults_to_english() {
+    assert_eq!(Settings::default().locale, Locale::En);
+}
+
+/// A deliberate Chinese choice survives a save/load round-trip, so the user sets
+/// the language once.
+#[test]
+fn locale_round_trips_zh() {
+    let dir = TempDir::new().expect("temp dir");
+    let path = temp_settings_path(&dir);
+    let mut s = Settings::default();
+    s.locale = Locale::Zh;
+    s.save_to(&path).expect("save");
+    let loaded = Settings::load_from(&path).expect("load");
+    assert_eq!(loaded.locale, Locale::Zh, "Zh locale must round-trip");
+}
+
+/// A legacy settings file with no `locale` key loads as English, so upgrades from
+/// a pre-i18n install are safe.
+#[test]
+fn missing_locale_key_loads_english() {
+    let dir = TempDir::new().expect("temp dir");
+    let path = temp_settings_path(&dir);
+    std::fs::write(&path, br#"{"usage_refresh_minutes":10}"#).unwrap();
+    let loaded = Settings::load_from(&path).expect("must load");
+    assert_eq!(loaded.locale, Locale::En, "absent locale must load as English");
+}
+
+/// An unrecognized locale value (a future/foreign/garbage code) falls back to
+/// English rather than failing the whole settings load.
+#[test]
+fn unrecognized_locale_value_loads_english() {
+    let dir = TempDir::new().expect("temp dir");
+    let path = temp_settings_path(&dir);
+    std::fs::write(&path, br#"{"locale":"fr"}"#).unwrap();
+    let loaded = Settings::load_from(&path).expect("unknown locale must not error");
+    assert_eq!(loaded.locale, Locale::En, "unknown locale must degrade to English");
 }

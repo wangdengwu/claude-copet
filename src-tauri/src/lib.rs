@@ -4,6 +4,7 @@
 
 pub mod events;
 pub mod hooks_install;
+pub mod i18n;
 pub mod mood;
 pub mod session;
 pub mod settings;
@@ -18,10 +19,12 @@ use std::time::{Duration, Instant};
 use std::os::unix::fs::PermissionsExt;
 
 use serde::Serialize;
-use tauri::menu::{MenuBuilder, MenuItemBuilder};
+use tauri::menu::{CheckMenuItemBuilder, Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::Wry;
 use tauri::Emitter;
 use tauri::Manager;
 
+use crate::i18n::{Locale, MenuKey};
 use crate::session::{ContextClient, UsageClient};
 
 /// The subscription usage limits surfaced in the HUD snapshot.
@@ -617,12 +620,18 @@ fn refresh_usage(state: tauri::State<UsageRefreshFlag>) {
     *state.0.lock().unwrap() = true;
 }
 
-/// Show the native context menu at the cursor position. The menu is built once
-/// in setup; this command just pops it via the Tauri window.
+/// Show the native context menu at the cursor position. The menu is built in
+/// setup and swapped in place on a locale switch; this command pops whatever
+/// menu is currently stored.
 #[tauri::command]
 fn show_context_menu(app: tauri::AppHandle, window: tauri::Window) {
     let state = app.state::<NativeCtxMenu>();
-    let _ = window.popup_menu(&state.0);
+    // Clone the ref-counted Menu handle and release the lock before popping, so
+    // the MutexGuard does not outlive the `state` borrow.
+    let menu = state.0.lock().ok().map(|m| m.clone());
+    if let Some(menu) = menu {
+        let _ = window.popup_menu(&menu);
+    }
 }
 
 /// Open (or focus) the settings window. The window is declared in tauri.conf.json
@@ -635,12 +644,63 @@ fn open_settings_window(app: tauri::AppHandle) {
     }
 }
 
-/// Stored native context menu, built once in setup and popped on right-click.
-struct NativeCtxMenu(tauri::menu::Menu<tauri::Wry>);
+/// Stored native context menu. `Mutex`-wrapped so a locale switch can swap in a
+/// freshly-built menu: Tauri's `manage` is a no-op once a type is managed, so the
+/// menu must be replaced through interior mutability, not by re-managing.
+struct NativeCtxMenu(std::sync::Mutex<tauri::menu::Menu<tauri::Wry>>);
 
-/// Handle to the connect/disconnect toggle menu item, so its label can be
-/// updated when the connection state changes.
-struct ConnToggleItem(tauri::menu::MenuItem<tauri::Wry>);
+/// Handle to the connect/disconnect toggle menu item of the CURRENT menu, so its
+/// label can be updated on a connection-state change without a full rebuild.
+/// `Mutex`-wrapped and swapped in place whenever the menu is rebuilt, so the
+/// handle never dangles to an old menu.
+struct ConnToggleItem(std::sync::Mutex<tauri::menu::MenuItem<tauri::Wry>>);
+
+/// Build the full native right-click menu for `locale` and `installed` state.
+/// Returns both the `Menu` (for `NativeCtxMenu`) and the `conn_item` handle
+/// (for `ConnToggleItem`) so callers can manage both as state.
+fn build_menu(
+    app: &tauri::AppHandle,
+    locale: Locale,
+    installed: bool,
+) -> Result<(Menu<Wry>, tauri::menu::MenuItem<Wry>), tauri::Error> {
+    let conn_label = hooks_install::connection_menu_label(locale, installed);
+    let conn_item = MenuItemBuilder::with_id("conn_toggle", conn_label).build(app)?;
+
+    let lang_en_checked = locale == Locale::En;
+    let lang_zh_checked = locale == Locale::Zh;
+    let lang_submenu = SubmenuBuilder::with_id(app, "lang_sub", i18n::menu_label(locale, MenuKey::Language))
+        .item(
+            &CheckMenuItemBuilder::with_id("lang_en", i18n::menu_label(locale, MenuKey::EnglishName))
+                .checked(lang_en_checked)
+                .build(app)?,
+        )
+        .item(
+            &CheckMenuItemBuilder::with_id("lang_zh", i18n::menu_label(locale, MenuKey::ChineseName))
+                .checked(lang_zh_checked)
+                .build(app)?,
+        )
+        .build()?;
+
+    let menu = MenuBuilder::new(app)
+        .item(
+            &MenuItemBuilder::with_id("refresh", i18n::menu_label(locale, MenuKey::Refresh))
+                .build(app)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("settings", i18n::menu_label(locale, MenuKey::Settings))
+                .build(app)?,
+        )
+        .item(&conn_item)
+        .item(&lang_submenu)
+        .separator()
+        .item(
+            &MenuItemBuilder::with_id("quit", i18n::menu_label(locale, MenuKey::Quit))
+                .build(app)?,
+        )
+        .build()?;
+
+    Ok((menu, conn_item))
+}
 
 #[tauri::command]
 fn get_settings() -> settings::Settings {
@@ -774,22 +834,16 @@ pub fn run() {
                 }
             }
 
-            // Build the native right-click menu (replaces the clipped HTML menu).
-            // The connect/disconnect toggle's label reflects current hook state.
-            let conn_item = MenuItemBuilder::with_id(
-                "conn_toggle",
-                hooks_install::connection_menu_label(hooks_status()),
-            )
-            .build(app)?;
-            let menu = MenuBuilder::new(app)
-                .item(&MenuItemBuilder::with_id("refresh", "Refresh usage").build(app)?)
-                .item(&MenuItemBuilder::with_id("settings", "Settings").build(app)?)
-                .item(&conn_item)
-                .separator()
-                .item(&MenuItemBuilder::with_id("quit", "Quit").build(app)?)
-                .build()?;
-            app.manage(NativeCtxMenu(menu));
-            app.manage(ConnToggleItem(conn_item));
+            // Read the persisted locale (default En for fresh installs / missing key).
+            let locale = settings_path()
+                .and_then(|p| settings::Settings::load_from(&p).ok())
+                .map(|s| s.locale)
+                .unwrap_or(Locale::En);
+
+            // Build the native right-click menu (locale-aware, with Language submenu).
+            let (menu, conn_item) = build_menu(app.handle(), locale, hooks_status())?;
+            app.manage(NativeCtxMenu(std::sync::Mutex::new(menu)));
+            app.manage(ConnToggleItem(std::sync::Mutex::new(conn_item)));
 
             // Handle native menu clicks.
             let flag = Arc::new(Mutex::new(false));
@@ -819,8 +873,44 @@ pub fn run() {
                         set_hooks_opt_out(false);
                         let _ = install_hooks();
                     }
-                    let label = hooks_install::connection_menu_label(hooks_status());
-                    let _ = app.state::<ConnToggleItem>().0.set_text(label);
+                    // Relabel using the active locale.
+                    let locale = settings_path()
+                        .and_then(|p| settings::Settings::load_from(&p).ok())
+                        .map(|s| s.locale)
+                        .unwrap_or(Locale::En);
+                    let label = hooks_install::connection_menu_label(locale, hooks_status());
+                    if let Ok(item) = app.state::<ConnToggleItem>().0.lock() {
+                        let _ = item.set_text(label);
+                    }
+                }
+                "lang_en" | "lang_zh" => {
+                    // Persist the new locale.
+                    let new_locale = if event.id().as_ref() == "lang_en" {
+                        Locale::En
+                    } else {
+                        Locale::Zh
+                    };
+                    if let Some(p) = settings_path() {
+                        let mut s = settings::Settings::load_from(&p).unwrap_or_default();
+                        s.locale = new_locale;
+                        let _ = s.save_to(&p);
+                    }
+                    // Rebuild the entire menu with the new locale and replace managed state.
+                    let installed = hooks_status();
+                    if let Ok((new_menu, new_conn_item)) = build_menu(app, new_locale, installed) {
+                        // Swap the stored menu + toggle handle in place. `manage`
+                        // cannot replace already-managed state, so mutate through
+                        // the Mutex instead.
+                        if let Ok(mut m) = app.state::<NativeCtxMenu>().0.lock() {
+                            *m = new_menu;
+                        }
+                        if let Ok(mut c) = app.state::<ConnToggleItem>().0.lock() {
+                            *c = new_conn_item;
+                        }
+                    }
+                    // Notify webviews of the locale change (consumed by later slices).
+                    let locale_str = if new_locale == Locale::En { "en" } else { "zh" };
+                    let _ = app.emit("locale", locale_str);
                 }
                 "quit" => app.exit(0),
                 _ => {}
