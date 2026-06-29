@@ -2,7 +2,7 @@
 id: 1
 slug: locale-setting-localized-menu
 prd: docs/prds/2026-06-29-i18n-localization.md
-state: ready-for-agent
+state: done
 category: enhancement
 blocked_by: []
 ---
