@@ -10,8 +10,30 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::i18n::Locale;
+
 fn default_usage_refresh_minutes() -> u8 {
     5
+}
+
+/// Tolerant deserializer for `locale`: missing key → `En`, unrecognized value → `En`.
+/// A bare `#[derive(Deserialize)]` on `Locale` would error on unknown strings (e.g. `"fr"`),
+/// which would fail the whole `Settings::load_from`. This helper maps any parse failure
+/// to the default `En`.
+fn deserialize_locale_tolerant<'de, D>(de: D) -> Result<Locale, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    // Deserialize into a generic Value first; if THAT fails (e.g. wrong type), default.
+    let opt: Option<serde_json::Value> = Option::deserialize(de).unwrap_or(None);
+    Ok(match opt {
+        Some(serde_json::Value::String(s)) => match s.as_str() {
+            "en" => Locale::En,
+            "zh" => Locale::Zh,
+            _ => Locale::En,
+        },
+        _ => Locale::En,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -22,6 +44,9 @@ pub struct Settings {
     /// Defaults to `false` so fresh installs connect automatically.
     #[serde(default)]
     pub hooks_opt_out: bool,
+    /// The user's chosen display locale. Missing or unrecognized values load as `En`.
+    #[serde(default, deserialize_with = "deserialize_locale_tolerant")]
+    pub locale: Locale,
 }
 
 impl Default for Settings {
@@ -29,6 +54,7 @@ impl Default for Settings {
         Settings {
             usage_refresh_minutes: 5,
             hooks_opt_out: false,
+            locale: Locale::En,
         }
     }
 }

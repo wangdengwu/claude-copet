@@ -4,6 +4,8 @@
 
 use serde_json::{json, Value};
 
+use crate::i18n::Locale;
+
 // The six Claude Code hook events we register, and whether each needs the
 // `"matcher": "*"` field (true for PreToolUse / PostToolUse).
 const HOOK_EVENTS: &[(&str, bool)] = &[
@@ -99,13 +101,14 @@ pub fn should_auto_install(opt_out: bool, installed: bool) -> bool {
     !opt_out && !installed
 }
 
-/// Label for the right-click connect/disconnect toggle, given the current
-/// install state: "Disconnect" when connected, "Connect" when not.
-pub fn connection_menu_label(installed: bool) -> &'static str {
-    if installed {
-        "Disconnect"
-    } else {
-        "Connect"
+/// Label for the right-click connect/disconnect toggle.
+/// Returns a locale-appropriate string for the current install state.
+pub fn connection_menu_label(locale: Locale, installed: bool) -> &'static str {
+    match (locale, installed) {
+        (Locale::En, true) => "Disconnect",
+        (Locale::En, false) => "Connect",
+        (Locale::Zh, true) => "断开连接",
+        (Locale::Zh, false) => "连接",
     }
 }
 

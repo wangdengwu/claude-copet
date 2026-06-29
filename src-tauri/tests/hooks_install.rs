@@ -6,6 +6,7 @@ use claude_copet_lib::hooks_install::{
     connection_menu_label, copet_hooks_installed, merge_copet_hooks, remove_copet_hooks,
     should_auto_install,
 };
+use claude_copet_lib::i18n::Locale;
 use serde_json::json;
 
 // A stable, fake script path used across tests.
@@ -309,12 +310,18 @@ fn auto_install_only_when_not_opted_out_and_not_installed() {
     );
 }
 
-// ── Behavior 8: connection_menu_label reflects current install state ──────────
+// ── Behavior 8: connection_menu_label reflects state AND active locale ────────
 
 #[test]
-fn menu_label_reflects_connection_state() {
+fn menu_label_reflects_connection_state_in_english() {
     // Connected → the action offered is to disconnect.
-    assert_eq!(connection_menu_label(true), "Disconnect");
+    assert_eq!(connection_menu_label(Locale::En, true), "Disconnect");
     // Not connected → the action offered is to connect.
-    assert_eq!(connection_menu_label(false), "Connect");
+    assert_eq!(connection_menu_label(Locale::En, false), "Connect");
+}
+
+#[test]
+fn menu_label_reflects_connection_state_in_chinese() {
+    assert_eq!(connection_menu_label(Locale::Zh, true), "断开连接");
+    assert_eq!(connection_menu_label(Locale::Zh, false), "连接");
 }
