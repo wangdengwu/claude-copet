@@ -2,6 +2,8 @@
 // frontend seam: decides the context-bar fill width, the colour band, the model
 // badge, and the "—" degradation when a field is unavailable. No DOM here.
 
+import { t, type Locale } from "./i18n";
+
 export interface UsagePayload {
   sessionPercent: number;
   sessionReset: string;
@@ -33,9 +35,6 @@ export interface HudView {
   needsHuman: boolean;
   usage: { fiveHour: UsageLine; sevenDay: UsageLine } | null;
 }
-
-// Warning line shown when Claude is waiting on the user (matches the PRD).
-const NEEDS_HUMAN_TEXT = "⚠ 等你输入 / 授权";
 
 // Colour thresholds: green headroom, amber caution, red near-full.
 const AMBER_AT = 70;
@@ -121,7 +120,7 @@ function usageLine(prefix: string, pct: number, reset: string, nowMs: number, ki
   return target === null ? base : `${base} ${formatRemaining(target, nowMs, kind)}`;
 }
 
-export function formatHud(state: HudState, nowMs: number = Date.now()): HudView {
+export function formatHud(state: HudState, nowMs: number = Date.now(), locale: Locale = "en"): HudView {
   const raw = state.contextPercent;
   const hasPct = raw !== null && raw !== undefined && !Number.isNaN(raw);
   const pct = hasPct ? Math.max(0, Math.min(100, raw as number)) : 0;
@@ -148,7 +147,7 @@ export function formatHud(state: HudState, nowMs: number = Date.now()): HudView 
     contextText: hasPct ? `${Math.round(pct)}%` : "—",
     barWidthPct: pct,
     colorBand: hasPct ? bandFor(pct) : "none",
-    activityText: state.needsHuman ? NEEDS_HUMAN_TEXT : (state.activity || "Idle"),
+    activityText: state.needsHuman ? t(locale, "needsHuman") : (state.activity || t(locale, "idle")),
     needsHuman: !!state.needsHuman,
     usage,
   };

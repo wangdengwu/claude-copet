@@ -3,7 +3,8 @@ import { formatHud } from "./hud";
 
 const base = { sessionLabel: "claude-copet", sessionId: "s1", activity: "Idle", needsHuman: false };
 
-const NEEDS_HUMAN_TEXT = "⚠ 等你输入 / 授权";
+const EN_NEEDS_HUMAN = "⚠ Waiting for input / approval";
+const ZH_NEEDS_HUMAN = "⚠ 等你输入 / 授权";
 
 test("label and model pass through; percent renders as a rounded number", () => {
   const v = formatHud({ ...base, model: "Opus 4.8", contextPercent: 61.7 });
@@ -59,9 +60,44 @@ test("empty activity falls back to Idle", () => {
 });
 
 test("needs-human overrides the bottom row with the warning line and sets the flag", () => {
+  // No explicit locale → English default (the PRD default).
   const v = formatHud({ ...base, model: "x", contextPercent: 10, activity: "Running Bash", needsHuman: true });
-  expect(v.activityText).toBe(NEEDS_HUMAN_TEXT);
+  expect(v.activityText).toBe(EN_NEEDS_HUMAN);
   expect(v.needsHuman).toBe(true);
+});
+
+// ─────────────────────────────── locale ──────────────────────────────────────
+
+test("needs-human warning and the Idle fallback are localized by the locale arg", () => {
+  const waiting = { ...base, model: "x", contextPercent: 10, activity: "Running Bash", needsHuman: true };
+  expect(formatHud(waiting, 0, "en").activityText).toBe(EN_NEEDS_HUMAN);
+  expect(formatHud(waiting, 0, "zh").activityText).toBe(ZH_NEEDS_HUMAN);
+
+  const idle = { ...base, model: "x", contextPercent: 10, activity: "", needsHuman: false };
+  expect(formatHud(idle, 0, "en").activityText).toBe("Idle");
+  expect(formatHud(idle, 0, "zh").activityText).toBe("空闲");
+});
+
+test("a real activity string passes through untranslated in both locales", () => {
+  const s = { ...base, model: "x", contextPercent: 10, activity: "Running Bash", needsHuman: false };
+  expect(formatHud(s, 0, "en").activityText).toBe("Running Bash");
+  expect(formatHud(s, 0, "zh").activityText).toBe("Running Bash");
+});
+
+test("data-derived fields are byte-identical across locales", () => {
+  const usagePayload = {
+    sessionPercent: 31, sessionReset: "Jun 26 at 11:59pm (Asia/Shanghai)",
+    weekPercent: 60, weekReset: "Jun 30 at 11:59pm (Asia/Shanghai)",
+  };
+  const s = { ...base, model: "Opus 4.8", contextPercent: 61.7, needsHuman: false, usage: usagePayload };
+  const en = formatHud(s, 1_700_000_000_000, "en");
+  const zh = formatHud(s, 1_700_000_000_000, "zh");
+  expect(zh.label).toBe(en.label);
+  expect(zh.model).toBe(en.model);
+  expect(zh.contextText).toBe(en.contextText);
+  expect(zh.barWidthPct).toBe(en.barWidthPct);
+  expect(zh.colorBand).toBe(en.colorBand);
+  expect(zh.usage).toEqual(en.usage);
 });
 
 // ─────────────────────────── usage limits (5h / 7d) ──────────────────────────

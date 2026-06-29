@@ -6,6 +6,12 @@ import { startRenderLoop } from "./render";
 import { createBubble } from "./bubble";
 import { formatHud } from "./hud";
 import type { HudState } from "./hud";
+import type { Locale } from "./i18n";
+
+// ─── Active locale ────────────────────────────────────────────────────────────
+// Starts as "en"; overwritten by the persisted setting on load and by the live
+// "locale" event when the user switches from the context menu.
+let locale: Locale = "en";
 
 const card = document.getElementById("card") as HTMLElement;
 const canvas = document.getElementById("pet") as HTMLCanvasElement;
@@ -100,7 +106,7 @@ hudInfo.append(topRow, barRow, activityRow, usageBlock);
 // re-fetches every few minutes).
 let lastUsageState: HudState | null = null;
 function renderUsage(state: HudState): void {
-  const usage = formatHud(state).usage;
+  const usage = formatHud(state, Date.now(), locale).usage;
   if (usage === null) {
     usageBlock.style.display = "none";
     return;
@@ -109,15 +115,12 @@ function renderUsage(state: HudState): void {
   setUsageCell(fiveHour, usage.fiveHour);
   setUsageCell(sevenDay, usage.sevenDay);
 }
-// Tick the countdown roughly once a minute (it shows minute granularity).
-setInterval(() => {
-  if (lastUsageState) renderUsage(lastUsageState);
-}, 30_000);
 
-listen<HudState>("hud", (event) => {
-  const view = formatHud(event.payload);
+// Render the full HUD card from a snapshot using the current locale.
+function renderHud(state: HudState): void {
+  const view = formatHud(state, Date.now(), locale);
   labelEl.textContent = view.label;
-  labelEl.title = event.payload.sessionId || "";
+  labelEl.title = state.sessionId || "";
   modelEl.textContent = view.model;
   barFill.style.width = `${view.barWidthPct}%`;
   barText.textContent = view.contextText;
@@ -125,12 +128,27 @@ listen<HudState>("hud", (event) => {
   activityRow.textContent = view.activityText;
   // The whole card turns amber and pulses when Claude is waiting on the user.
   card.classList.toggle("needs-human", view.needsHuman);
+  renderUsage(state);
+}
 
-  // Usage limits block — hidden entirely for non-Claude/API-key setups.
+// Tick the countdown roughly once a minute (it shows minute granularity).
+setInterval(() => {
+  if (lastUsageState) renderUsage(lastUsageState);
+}, 30_000);
+
+listen<HudState>("hud", (event) => {
   lastUsageState = event.payload;
-  renderUsage(event.payload);
+  renderHud(event.payload);
 }).catch(() => {
   /* not running inside Tauri — no live session */
+});
+
+// Re-render the retained snapshot whenever the user switches language.
+listen<string>("locale", (e) => {
+  locale = e.payload as Locale;
+  if (lastUsageState) renderHud(lastUsageState);
+}).catch(() => {
+  /* not running inside Tauri — no locale events */
 });
 
 // listen rejects when no Tauri runtime is present (e.g. plain `vite` in a browser);
@@ -160,6 +178,16 @@ async function invokeOrNull<T>(cmd: string, args?: unknown): Promise<T | null> {
     return null;
   }
 }
+
+// Read the persisted locale on startup so the HUD renders in the right language
+// before any snapshot arrives (and before the "locale" event fires).
+invokeOrNull<{ locale: string }>("get_settings").then((settings) => {
+  if (settings?.locale === "en" || settings?.locale === "zh") {
+    locale = settings.locale;
+  }
+}).catch(() => {
+  /* outside Tauri — stay "en" */
+});
 
 // ─── Drag + click-to-pet ─────────────────────────────────────────────────────
 // The window is frameless; the whole card is the drag surface. We detect pointer
